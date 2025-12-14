@@ -1,0 +1,74 @@
+version: '3.8'
+
+services:
+  # Banco de Dados PostgreSQL
+  db:
+    image: postgres:15-alpine
+    container_name: sicar_postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: sicar_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - sicar_network
+
+  # API SICAR
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: sicar_api
+    ports:
+      - "8000:8000"
+    environment:
+      # Sobrescrever configurações via environment
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/sicar_db
+      SICAR_DOWNLOAD_FOLDER: /app/downloads
+      LOG_LEVEL: INFO
+      SCHEDULE_ENABLED: "True"
+      DEBUG: "False"
+    volumes:
+      # Mapear pasta de downloads para persistência
+      - ./downloads:/app/downloads
+      # Mapear logs
+      - ./logs:/app/logs
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - sicar_network
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+
+  # PGAdmin (Opcional - Interface para gerenciar PostgreSQL)
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: sicar_pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@sicar.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - "5050:80"
+    depends_on:
+      - db
+    networks:
+      - sicar_network
+    profiles:
+      - tools  # Só inicia se especificar: docker-compose --profile tools up
+
+volumes:
+  postgres_data:
+    driver: local
+
+networks:
+  sicar_network:
+    driver: bridge
