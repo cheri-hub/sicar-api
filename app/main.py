@@ -6,14 +6,20 @@ e consultar dados armazenados no PostgreSQL.
 """
 
 import logging
-from typing import List, Optional
+import json
+from typing import List, Optional, Any
 from contextlib import asynccontextmanager
+from datetime import datetime
 
 from fastapi import FastAPI, Depends, HTTPException, BackgroundTasks, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
+from starlette.responses import Response
+import re
 
 from app.config import settings
 from app.database import get_db, init_db, check_connection
@@ -21,6 +27,45 @@ from app.scheduler import scheduler
 from app.services.sicar_service import SicarService
 from app.repositories.data_repository import DataRepository
 from app.models import DownloadJob, StateRelease
+
+
+# Middleware para adicionar 'Z' em todos os timestamps
+class TimezoneMiddleware(BaseHTTPMiddleware):
+    """Middleware que adiciona 'Z' em timestamps ISO sem timezone."""
+    
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        
+        # Apenas processar respostas JSON
+        if response.headers.get("content-type", "").startswith("application/json"):
+            # Ler o corpo da resposta
+            body = b""
+            async for chunk in response.body_iterator:
+                body += chunk
+            
+            # Adicionar 'Z' em timestamps ISO sem timezone
+            body_str = body.decode('utf-8')
+            # Regex: encontra "YYYY-MM-DDTHH:MM:SS.ffffff" e adiciona Z antes das aspas
+            body_str = re.sub(
+                r'"(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+)"',
+                r'"\1Z"',
+                body_str
+            )
+            
+            # Recalcular Content-Length
+            new_body = body_str.encode('utf-8')
+            headers = dict(response.headers)
+            headers['content-length'] = str(len(new_body))
+            
+            # Retornar resposta modificada
+            return Response(
+                content=new_body,
+                status_code=response.status_code,
+                headers=headers,
+                media_type=response.media_type
+            )
+        
+        return response
 
 # Configurar logging
 logging.basicConfig(
@@ -32,33 +77,50 @@ logger = logging.getLogger(__name__)
 
 # ===== Schemas Pydantic =====
 
-class DownloadRequest(BaseModel):
-    """Schema para requisição de download."""
-    state: str
-    polygon: str
+class CARDownloadRequest(BaseModel):
+    """Schema para requisição de download por CAR."""
+    car_number: str
     force: bool = False
 
     class Config:
         json_schema_extra = {
             "example": {
-                "state": "SP",
-                "polygon": "APPS",
+                "car_number": "SP-3538709-4861E981046E49BC81720C879459E554",
                 "force": False
             }
         }
 
 
 class StateDownloadRequest(BaseModel):
-    """Schema para download de estado completo."""
+    """Schema para download de polígonos de um estado."""
     state: str
     polygons: Optional[List[str]] = None
 
     class Config:
         json_schema_extra = {
-            "example": {
-                "state": "MG",
-                "polygons": ["APPS", "LEGAL_RESERVE"]
-            }
+            "examples": [
+                {
+                    "description": "Download único",
+                    "value": {
+                        "state": "SP",
+                        "polygons": ["APPS"]
+                    }
+                },
+                {
+                    "description": "Download múltiplo",
+                    "value": {
+                        "state": "MG",
+                        "polygons": ["APPS", "AREA_PROPERTY", "LEGAL_RESERVE"]
+                    }
+                },
+                {
+                    "description": "Usar configuração padrão",
+                    "value": {
+                        "state": "RJ",
+                        "polygons": None
+                    }
+                }
+            ]
         }
 
 
@@ -67,7 +129,19 @@ class HealthResponse(BaseModel):
     status: str
     database: str
     scheduler: str
+    active_jobs: int
     version: str
+
+
+class DownloadStatsResponse(BaseModel):
+    """Schema para resposta de estatísticas de downloads."""
+    total_jobs: int
+    completed: int
+    failed: int
+    pending: int
+    running: int
+    total_size_bytes: int
+    total_size_mb: float
 
 
 # ===== Lifecycle Events =====
@@ -111,9 +185,20 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title=settings.app_name,
     version=settings.app_version,
-    description="API para download e gerenciamento de dados do SICAR",
+    description="""API REST para automação de downloads e gerenciamento de dados do SICAR (Sistema Nacional de Cadastro Ambiental Rural).
+    
+    Recursos:
+    - Download automático de shapefiles por estado e polígono
+    - Download individual por número CAR
+    - Agendador configurável (diário, semanal, por intervalo)
+    - Consulta de propriedades e estatísticas
+    - Rastreamento completo de jobs de download
+    """,
     lifespan=lifespan
 )
+
+# Adicionar middleware de timezone
+app.add_middleware(TimezoneMiddleware)
 
 # Configurar CORS
 app.add_middleware(
@@ -143,10 +228,13 @@ async def health_check(db: Session = Depends(get_db)):
     """
     Verifica a saúde da aplicação.
     
-    Retorna status do banco de dados e agendador.
+    Retorna status do banco de dados, agendador e jobs ativos.
     """
     db_status = "healthy" if check_connection() else "unhealthy"
     scheduler_status = "running" if scheduler.scheduler.running else "stopped"
+    
+    # Contar jobs ativos (não pausados)
+    active_jobs = sum(1 for job in scheduler.scheduler.get_jobs() if not job.next_run_time is None)
     
     overall_status = "healthy" if (db_status == "healthy" and scheduler_status == "running") else "unhealthy"
     
@@ -154,8 +242,68 @@ async def health_check(db: Session = Depends(get_db)):
         status=overall_status,
         database=db_status,
         scheduler=scheduler_status,
+        active_jobs=active_jobs,
         version=settings.app_version
     )
+
+
+# ===== Settings Endpoints =====
+
+@app.get("/settings", tags=["Settings"])
+async def get_settings(db: Session = Depends(get_db)):
+    """
+    Retorna todas as configurações da aplicação.
+    """
+    repository = DataRepository(db)
+    settings_dict = repository.get_all_settings()
+    return {"settings": settings_dict}
+
+
+@app.get("/settings/{key}", tags=["Settings"])
+async def get_setting(key: str, db: Session = Depends(get_db)):
+    """
+    Retorna uma configuração específica.
+    """
+    repository = DataRepository(db)
+    setting = repository.get_setting(key)
+    
+    if not setting:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Configuração '{key}' não encontrada"
+        )
+    
+    return {
+        "key": setting.key,
+        "value": setting.value,
+        "description": setting.description,
+        "updated_at": setting.updated_at.isoformat() if setting.updated_at else None
+    }
+
+
+class SettingUpdate(BaseModel):
+    """Schema para atualização de configuração."""
+    value: Any
+    description: Optional[str] = None
+
+
+@app.put("/settings/{key}", tags=["Settings"])
+async def update_setting(key: str, setting_data: SettingUpdate, db: Session = Depends(get_db)):
+    """
+    Atualiza ou cria uma configuração.
+    """
+    repository = DataRepository(db)
+    setting = repository.save_setting(
+        key=key,
+        value=setting_data.value,
+        description=setting_data.description
+    )
+    
+    return {
+        "message": f"Configuração '{key}' salva com sucesso",
+        "key": setting.key,
+        "value": setting.value
+    }
 
 
 # ===== Releases Endpoints =====
@@ -165,10 +313,13 @@ async def get_releases(db: Session = Depends(get_db)):
     """
     Retorna todas as datas de release dos estados.
     
-    Lista as datas de disponibilização dos dados por estado.
+    Lista as datas de disponibilização dos dados por estado e último download realizado.
     """
     repository = DataRepository(db)
     releases = repository.get_all_releases()
+    
+    # Buscar todos os últimos downloads de uma vez (otimizado)
+    latest_downloads = repository.get_latest_downloads_by_states()
     
     return {
         "count": len(releases),
@@ -176,7 +327,10 @@ async def get_releases(db: Session = Depends(get_db)):
             {
                 "state": r.state,
                 "release_date": r.release_date,
-                "last_checked": r.last_checked.isoformat() if r.last_checked else None
+                "last_checked": r.last_checked.isoformat() if r.last_checked else None,
+                "last_download": latest_downloads[r.state].completed_at.isoformat() 
+                    if r.state in latest_downloads and latest_downloads[r.state].completed_at 
+                    else None
             }
             for r in releases
         ]
@@ -206,35 +360,6 @@ async def update_releases(
 
 # ===== Downloads Endpoints =====
 
-@app.post("/downloads", tags=["Downloads"], status_code=status.HTTP_202_ACCEPTED)
-async def create_download(
-    request: DownloadRequest,
-    background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db)
-):
-    """
-    Cria um job de download para um polígono específico.
-    
-    O download é executado em background e você pode consultar
-    o status usando o endpoint GET /downloads/{job_id}.
-    """
-    def download_task():
-        service = SicarService(db)
-        service.download_polygon(
-            state=request.state.upper(),
-            polygon=request.polygon.upper(),
-            force=request.force
-        )
-    
-    background_tasks.add_task(download_task)
-    
-    return {
-        "message": "Download iniciado em background",
-        "state": request.state.upper(),
-        "polygon": request.polygon.upper()
-    }
-
-
 @app.post("/downloads/state", tags=["Downloads"], status_code=status.HTTP_202_ACCEPTED)
 async def download_state(
     request: StateDownloadRequest,
@@ -242,9 +367,16 @@ async def download_state(
     db: Session = Depends(get_db)
 ):
     """
-    Baixa todos os polígonos configurados para um estado.
+    Baixa um ou múltiplos shapefiles de polígonos de um estado.
     
-    Se não especificar polígonos, usa a configuração padrão da aplicação.
+    O download é executado em background. Use GET /downloads para monitorar o progresso.
+    
+    Parâmetros:
+    - state: Sigla do estado (AC, AL, AM, BA, CE, DF, ES, GO, MA, MT, MS, MG, PA, PB, PR, PE, PI, RJ, RN, RS, RO, RR, SC, SP, SE, TO)
+    - polygons: Lista de tipos de polígono (AREA_PROPERTY, APPS, NATIVE_VEGETATION, etc.)
+      * Se passar 1 elemento: download único
+      * Se passar vários elementos: cria um job para cada polígono
+      * Se não especificar: usa configuração padrão (AUTO_DOWNLOAD_POLYGONS)
     """
     def download_task():
         service = SicarService(db)
@@ -301,6 +433,20 @@ async def list_downloads(
     }
 
 
+@app.get("/downloads/stats", response_model=DownloadStatsResponse, tags=["Downloads"])
+async def get_download_stats(db: Session = Depends(get_db)):
+    """
+    Retorna estatísticas consolidadas de todos os downloads.
+    
+    Inclui:
+    - Total de jobs (completos, falhados, em execução, pendentes)
+    - Tamanho total dos arquivos baixados (bytes e MB)
+    """
+    service = SicarService(db)
+    stats = service.get_download_stats()
+    return stats
+
+
 @app.get("/downloads/{job_id}", tags=["Downloads"])
 async def get_download(job_id: int, db: Session = Depends(get_db)):
     """
@@ -330,14 +476,109 @@ async def get_download(job_id: int, db: Session = Depends(get_db)):
     }
 
 
-@app.get("/downloads/stats", tags=["Downloads"])
-async def get_download_stats(db: Session = Depends(get_db)):
+# ===== CAR Downloads Endpoints =====
+
+@app.get("/search/car/{car_number}", tags=["CAR"])
+async def search_property_by_car(
+    car_number: str,
+    db: Session = Depends(get_db)
+):
     """
-    Retorna estatísticas dos downloads.
+    Busca propriedade no SICAR pelo número CAR.
+    
+    Retorna informações da propriedade incluindo ID interno,
+    código, área, município, status e geometria.
+    
+    Parâmetros:
+    - car_number: Número do CAR (ex: SP-3538709-4861E981046E49BC81720C879459E554)
     """
-    service = SicarService(db)
-    stats = service.get_download_stats()
-    return stats
+    try:
+        service = SicarService(db)
+        property_data = service.search_property_by_car(car_number)
+        
+        if not property_data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Propriedade com CAR {car_number} não encontrada"
+            )
+        
+        return property_data
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Erro ao buscar CAR {car_number}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Erro ao buscar propriedade: {str(e)}"
+        )
+
+
+@app.post("/downloads/car", tags=["CAR"], status_code=status.HTTP_202_ACCEPTED)
+async def download_by_car_number(
+    request: CARDownloadRequest,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db)
+):
+    """
+    Baixa shapefile de propriedade específica pelo número CAR.
+    
+    O download é executado em background. Use GET /downloads/{job_id}
+    para consultar o status.
+    
+    Parâmetros:
+    - car_number: Número do CAR
+    - force: Se True, força novo download mesmo se já existe (default: False)
+    """
+    def download_task():
+        service = SicarService(db)
+        result = service.download_property_by_car(
+            car_number=request.car_number,
+            force=request.force
+        )
+        if result:
+            logger.info(f"Download CAR {request.car_number} concluído: Job {result.id}")
+    
+    background_tasks.add_task(download_task)
+    
+    return {
+        "message": "Download iniciado em background",
+        "car_number": request.car_number
+    }
+
+
+@app.get("/downloads/car/{car_number}", tags=["CAR"])
+async def get_car_download_status(
+    car_number: str,
+    db: Session = Depends(get_db)
+):
+    """
+    Consulta status de download de um CAR específico.
+    
+    Retorna o download mais recente para o número CAR fornecido.
+    """
+    repository = DataRepository(db)
+    download = repository.get_download_by_car_number(car_number)
+    
+    if not download:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Nenhum download encontrado para CAR {car_number}"
+        )
+    
+    return {
+        "id": download.id,
+        "car_number": car_number,
+        "state": download.state,
+        "status": download.status,
+        "file_path": download.file_path,
+        "file_size": download.file_size,
+        "error_message": download.error_message,
+        "retry_count": download.retry_count,
+        "started_at": download.started_at.isoformat() if download.started_at else None,
+        "completed_at": download.completed_at.isoformat() if download.completed_at else None,
+        "created_at": download.created_at.isoformat() if download.created_at else None
+    }
 
 
 # ===== Properties Endpoints =====
@@ -411,6 +652,230 @@ async def run_job_now(job_id: str):
         )
     
     return {"message": f"Job {job_id} agendado para execução imediata"}
+
+
+@app.post("/scheduler/jobs/{job_id}/pause", tags=["Scheduler"])
+async def pause_job(job_id: str, db: Session = Depends(get_db)):
+    """
+    Pausa um job agendado e persiste no banco.
+    """
+    success = scheduler.pause_job(job_id)
+    
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Job {job_id} não encontrado"
+        )
+    
+    # Atualizar no banco
+    repository = DataRepository(db)
+    config = repository.get_job_config(job_id)
+    if config:
+        config.is_active = False
+        config.updated_at = datetime.utcnow()
+        db.commit()
+    
+    return {"message": f"Job {job_id} pausado"}
+
+
+@app.post("/scheduler/jobs/{job_id}/resume", tags=["Scheduler"])
+async def resume_job(job_id: str, db: Session = Depends(get_db)):
+    """
+    Resume um job pausado e persiste no banco.
+    """
+    success = scheduler.resume_job(job_id)
+    
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Job {job_id} não encontrado"
+        )
+    
+    # Atualizar no banco
+    repository = DataRepository(db)
+    config = repository.get_job_config(job_id)
+    if config:
+        config.is_active = True
+        config.updated_at = datetime.utcnow()
+        db.commit()
+    
+    return {"message": f"Job {job_id} resumido"}
+
+
+class RescheduleRequest(BaseModel):
+    """Schema para reagendamento avançado de job."""
+    schedule_type: str  # 'daily', 'weekly', 'interval'
+    hour: int = 0
+    minute: int = 0
+    day_of_week: Optional[str] = None  # Para weekly: 'mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'
+    interval_hours: Optional[int] = None  # Para interval
+    interval_minutes: Optional[int] = None  # Para interval
+
+    class Config:
+        json_schema_extra = {
+            "examples": [
+                {
+                    "description": "Execução diária às 14:30",
+                    "value": {
+                        "schedule_type": "daily",
+                        "hour": 14,
+                        "minute": 30
+                    }
+                },
+                {
+                    "description": "Execução semanal às segundas-feiras às 10:00",
+                    "value": {
+                        "schedule_type": "weekly",
+                        "hour": 10,
+                        "minute": 0,
+                        "day_of_week": "mon"
+                    }
+                },
+                {
+                    "description": "Execução a cada 6 horas",
+                    "value": {
+                        "schedule_type": "interval",
+                        "interval_hours": 6
+                    }
+                },
+                {
+                    "description": "Execução a cada 30 minutos",
+                    "value": {
+                        "schedule_type": "interval",
+                        "interval_minutes": 30
+                    }
+                }
+            ]
+        }
+
+
+@app.post("/scheduler/jobs/{job_id}/reschedule", tags=["Scheduler"])
+async def reschedule_job_endpoint(job_id: str, request: RescheduleRequest, db: Session = Depends(get_db)):
+    """
+    Reagenda um job com configurações avançadas e persiste no banco.
+    
+    Tipos de agendamento:
+    - daily: Execução diária em horário específico (requer hour e minute)
+    - weekly: Execução semanal em dia e horário específicos (requer day_of_week, hour e minute)
+    - interval: Execução em intervalos regulares (requer interval_hours e/ou interval_minutes)
+    
+    Dias da semana válidos: mon, tue, wed, thu, fri, sat, sun
+    """
+    # Validações
+    if request.schedule_type not in ['daily', 'weekly', 'interval']:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="schedule_type deve ser 'daily', 'weekly' ou 'interval'"
+        )
+    
+    if request.schedule_type in ['daily', 'weekly']:
+        if not (0 <= request.hour <= 23):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Hora deve estar entre 0 e 23"
+            )
+        
+        if not (0 <= request.minute <= 59):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Minuto deve estar entre 0 e 59"
+            )
+    
+    if request.schedule_type == 'weekly':
+        valid_days = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
+        if not request.day_of_week or request.day_of_week not in valid_days:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"day_of_week deve ser um dos: {', '.join(valid_days)}"
+            )
+    
+    if request.schedule_type == 'interval':
+        if not request.interval_hours and not request.interval_minutes:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="interval_hours ou interval_minutes deve ser especificado"
+            )
+        
+        if request.interval_hours and request.interval_hours < 1:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="interval_hours deve ser maior que 0"
+            )
+        
+        if request.interval_minutes and request.interval_minutes < 1:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="interval_minutes deve ser maior que 0"
+            )
+    
+    success = scheduler.reschedule_job_advanced(
+        job_id=job_id,
+        schedule_type=request.schedule_type,
+        hour=request.hour,
+        minute=request.minute,
+        day_of_week=request.day_of_week,
+        interval_hours=request.interval_hours,
+        interval_minutes=request.interval_minutes
+    )
+    
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Job {job_id} não encontrado ou configuração inválida"
+        )
+    
+    # Salvar configuração no banco
+    repository = DataRepository(db)
+    job = scheduler.scheduler.get_job(job_id)
+    
+    if job:
+        # Determinar trigger_type e valores baseado no request
+        if request.schedule_type == 'daily':
+            trigger_type = "cron"
+            cron_expression = f"0 {request.minute} {request.hour} * * *"
+            interval_minutes = None
+        elif request.schedule_type == 'weekly':
+            trigger_type = "cron"
+            # Converter day_of_week para formato cron (0=domingo, 1=segunda, etc)
+            day_map = {'sun': '0', 'mon': '1', 'tue': '2', 'wed': '3', 'thu': '4', 'fri': '5', 'sat': '6'}
+            day_num = day_map.get(request.day_of_week, '*')
+            cron_expression = f"0 {request.minute} {request.hour} * * {day_num}"
+            interval_minutes = None
+        else:  # interval
+            trigger_type = "interval"
+            cron_expression = None
+            total_minutes = (request.interval_hours or 0) * 60 + (request.interval_minutes or 0)
+            interval_minutes = total_minutes
+        
+        repository.save_job_config(
+            job_id=job_id,
+            job_name=job.name,
+            is_active=job.next_run_time is not None,
+            trigger_type=trigger_type,
+            cron_expression=cron_expression,
+            interval_minutes=interval_minutes
+        )
+    
+    # Construir mensagem de resposta
+    if request.schedule_type == 'daily':
+        message = f"Job {job_id} reagendado para execução diária às {request.hour:02d}:{request.minute:02d}"
+    elif request.schedule_type == 'weekly':
+        days_pt = {'mon': 'Segunda', 'tue': 'Terça', 'wed': 'Quarta', 'thu': 'Quinta', 
+                   'fri': 'Sexta', 'sat': 'Sábado', 'sun': 'Domingo'}
+        day_name = days_pt.get(request.day_of_week, request.day_of_week)
+        message = f"Job {job_id} reagendado para {day_name} às {request.hour:02d}:{request.minute:02d}"
+    else:  # interval
+        parts = []
+        if request.interval_hours:
+            parts.append(f"{request.interval_hours}h")
+        if request.interval_minutes:
+            parts.append(f"{request.interval_minutes}min")
+        message = f"Job {job_id} reagendado para execução a cada {' '.join(parts)}"
+    
+    return {
+        "message": message,
+        "schedule_type": request.schedule_type
+    }
 
 
 @app.get("/scheduler/tasks", tags=["Scheduler"])

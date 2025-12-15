@@ -45,6 +45,7 @@ class DownloadJob(Base):
         id: Identificador único
         state: Estado solicitado
         polygon: Tipo de polígono solicitado
+        car_number: Número CAR (apenas para downloads individuais)
         status: Status do job (pending, running, completed, failed)
         file_path: Caminho do arquivo baixado
         file_size: Tamanho do arquivo em bytes
@@ -58,6 +59,7 @@ class DownloadJob(Base):
     id = Column(Integer, primary_key=True, index=True)
     state = Column(String(2), index=True, nullable=False)
     polygon = Column(String(50), index=True, nullable=False)
+    car_number = Column(String(100), index=True, nullable=True)
     status = Column(String(20), default="pending", index=True)  # pending, running, completed, failed
     file_path = Column(String(500), nullable=True)
     file_size = Column(BigInteger, nullable=True)  # bytes (usando BigInteger para arquivos > 2GB)
@@ -69,6 +71,7 @@ class DownloadJob(Base):
 
     __table_args__ = (
         Index('idx_state_polygon_status', 'state', 'polygon', 'status'),
+        Index('idx_car_number', 'car_number'),
     )
 
     def __repr__(self):
@@ -167,3 +170,61 @@ class ScheduledTask(Base):
 
     def __repr__(self):
         return f"<ScheduledTask(id={self.id}, task_name={self.task_name}, status={self.status})>"
+
+
+class JobConfiguration(Base):
+    """
+    Armazena as configurações persistentes dos jobs agendados.
+    
+    Attributes:
+        id: Identificador único
+        job_id: ID do job no APScheduler
+        job_name: Nome amigável do job
+        is_active: Se o job está ativo (não pausado)
+        trigger_type: Tipo de trigger (cron, interval)
+        cron_expression: Expressão cron (para trigger cron)
+        interval_minutes: Intervalo em minutos (para trigger interval)
+        config_data: Dados adicionais de configuração (JSON)
+        created_at: Data de criação
+        updated_at: Data de última atualização
+    """
+    __tablename__ = "job_configurations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    job_id = Column(String(100), unique=True, index=True, nullable=False)
+    job_name = Column(String(200), nullable=False)
+    is_active = Column(Boolean, default=True, nullable=False)
+    trigger_type = Column(String(20), nullable=False)  # 'cron' ou 'interval'
+    cron_expression = Column(String(100), nullable=True)  # Ex: "0 2 * * *"
+    interval_minutes = Column(Integer, nullable=True)  # Para trigger interval
+    config_data = Column(JSON, nullable=True)  # Configurações extras
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def __repr__(self):
+        return f"<JobConfiguration(id={self.id}, job_id={self.job_id}, is_active={self.is_active})>"
+
+
+class AppSettings(Base):
+    """
+    Armazena configurações globais da aplicação.
+    
+    Attributes:
+        id: Identificador único
+        key: Chave da configuração (ex: 'timezone', 'theme')
+        value: Valor da configuração (JSON)
+        description: Descrição da configuração
+        created_at: Data de criação
+        updated_at: Data de última atualização
+    """
+    __tablename__ = "app_settings"
+
+    id = Column(Integer, primary_key=True, index=True)
+    key = Column(String(100), unique=True, index=True, nullable=False)
+    value = Column(JSON, nullable=False)
+    description = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def __repr__(self):
+        return f"<AppSettings(id={self.id}, key={self.key})>"

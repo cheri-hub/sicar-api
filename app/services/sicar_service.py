@@ -116,20 +116,13 @@ class SicarService:
         Args:
             state: Sigla do estado (ex: "SP")
             polygon: Tipo de polígono (ex: "APPS")
-            force: Se True, baixa mesmo que já exista
+            force: Parâmetro ignorado - sempre faz novo download
             
         Returns:
-            DownloadJob criado ou None se já existe e force=False
+            DownloadJob criado
         """
         try:
-            # Verificar se já existe download recente
-            if not force:
-                existing = self.repository.get_latest_download(state, polygon)
-                if existing and existing.status == "completed":
-                    logger.info(f"Download já existe: {state} - {polygon}")
-                    return existing
-
-            # Criar job de download
+            # Sempre criar novo job de download (substitui o anterior)
             job = self.repository.create_download_job(state, polygon)
             logger.info(f"Criado job de download: {job.id} - {state} - {polygon}")
 
@@ -316,6 +309,151 @@ class SicarService:
 
         except Exception as e:
             logger.error(f"Erro na coleta diária: {e}")
+            raise
+
+    def search_property_by_car(self, car_number: str) -> Dict:
+        """
+        Busca uma propriedade pelo número CAR.
+        
+        Args:
+            car_number: Número do CAR (ex: "SP-3538709-4861E981046E49BC81720C879459E554")
+            
+        Returns:
+            Dict com informações da propriedade
+        """
+        try:
+            logger.info(f"Buscando propriedade CAR: {car_number}")
+            property_data = self.sicar.search_by_car_number(car_number)
+            
+            return {
+                "car_number": car_number,
+                "internal_id": property_data.get("id"),
+                "codigo": property_data.get("properties", {}).get("codigo"),
+                "area": property_data.get("properties", {}).get("area"),
+                "status": property_data.get("properties", {}).get("status"),
+                "tipo": property_data.get("properties", {}).get("tipo"),
+                "municipio": property_data.get("properties", {}).get("municipio"),
+                "data_disponibilizacao": property_data.get("properties", {}).get("dataDisponibilizacao"),
+                "geometry": property_data.get("geometry")
+            }
+            
+        except Exception as e:
+            logger.error(f"Erro ao buscar CAR {car_number}: {e}")
+            raise
+
+    def download_property_by_car(
+        self,
+        car_number: str,
+        force: bool = False
+    ) -> Optional[DownloadJob]:
+        """
+        Baixa shapefile de uma propriedade específica pelo número CAR.
+        
+        Args:
+            car_number: Número do CAR
+            force: Se True, baixa mesmo que já exista
+            
+        Returns:
+            DownloadJob criado ou None se já existe e force=False
+        """
+        try:
+            # Verificar se já existe download recente
+            if not force:
+                existing = self.repository.get_download_by_car_number(car_number)
+                if existing and existing.status == "completed":
+                    logger.info(f"Download já existe para CAR: {car_number}")
+                    return existing
+
+            # Criar job de download
+            job = self.repository.create_download_job_car(car_number)
+            logger.info(f"Criado job de download CAR: {job.id} - {car_number}")
+
+            # Atualizar status para running
+            job.status = "running"
+            job.started_at = datetime.utcnow()
+            self.db.commit()
+
+            logger.info(f"Iniciando download CAR: {car_number}")
+            
+            # Tentar download com retry automático em caso de timeout
+            max_retries = settings.sicar_max_retries
+            retry_count = 0
+            last_error = None
+            
+            while retry_count < max_retries:
+                try:
+                    # Criar pasta para downloads por CAR
+                    folder = self.download_folder / "CAR"
+                    folder.mkdir(parents=True, exist_ok=True)
+                    
+                    file_path = self.sicar.download_by_car_number(
+                        car_number=car_number,
+                        folder=str(folder),
+                        tries=25,
+                        debug=True
+                    )
+                    
+                    # Download bem-sucedido
+                    if file_path and os.path.exists(file_path):
+                        # Atualizar job com sucesso
+                        job.status = "completed"
+                        job.completed_at = datetime.utcnow()
+                        job.file_path = str(file_path)
+                        job.file_size = os.path.getsize(file_path)
+                        self.db.commit()
+                        
+                        logger.info(f"Download concluído: {file_path}")
+                        
+                        # Processar arquivo (extrair dados)
+                        self._process_downloaded_file(job)
+                        
+                        return job
+                    else:
+                        error_msg = f"Download falhou: file_path={file_path}"
+                        if file_path:
+                            error_msg += f", exists={os.path.exists(file_path)}"
+                        logger.error(error_msg)
+                        raise Exception(error_msg)
+                        
+                except Exception as download_error:
+                    retry_count += 1
+                    last_error = download_error
+                    error_msg = str(download_error)
+                    
+                    # Verificar se é timeout
+                    is_timeout = "timeout" in error_msg.lower() or "timed out" in error_msg.lower()
+                    
+                    if is_timeout and retry_count < max_retries:
+                        logger.warning(
+                            f"Timeout no download (tentativa {retry_count}/{max_retries}). "
+                            f"Aguardando {settings.sicar_retry_delay}s antes de tentar novamente..."
+                        )
+                        job.retry_count = retry_count
+                        self.db.commit()
+                        
+                        import time
+                        time.sleep(settings.sicar_retry_delay)
+                    else:
+                        # Não é timeout ou acabaram as tentativas
+                        raise
+            
+            # Se chegou aqui, esgotou todas as tentativas
+            raise last_error or Exception("Download falhou após múltiplas tentativas")
+
+        except Exception as e:
+            logger.error(f"Erro no download CAR após {retry_count if 'retry_count' in locals() else 0} tentativas: {e}")
+            
+            # Atualizar job com erro
+            if 'job' in locals():
+                job.status = "failed"
+                job.error_message = str(e)
+                job.completed_at = datetime.utcnow()
+                if 'retry_count' in locals():
+                    job.retry_count = retry_count
+                else:
+                    job.retry_count += 1
+                self.db.commit()
+            
             raise
 
     def _process_downloaded_file(self, job: DownloadJob):

@@ -6,7 +6,7 @@ aos dados do SICAR.
 """
 
 import logging
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Any
 from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
 from sqlalchemy import func, desc
@@ -112,6 +112,44 @@ class DataRepository:
         self.db.refresh(job)
         return job
 
+    def create_download_job_car(self, car_number: str) -> DownloadJob:
+        """
+        Cria um novo job de download para número CAR.
+        
+        Args:
+            car_number: Número do CAR
+            
+        Returns:
+            DownloadJob criado
+        """
+        # Extrair estado do número CAR (primeiros 2 caracteres)
+        state = car_number[:2] if len(car_number) >= 2 else "XX"
+        
+        job = DownloadJob(
+            state=state,
+            polygon="CAR_INDIVIDUAL",
+            car_number=car_number,
+            status="pending"
+        )
+        self.db.add(job)
+        self.db.commit()
+        self.db.refresh(job)
+        return job
+
+    def get_download_by_car_number(self, car_number: str) -> Optional[DownloadJob]:
+        """
+        Busca download pelo número CAR.
+        
+        Args:
+            car_number: Número do CAR
+            
+        Returns:
+            DownloadJob ou None
+        """
+        return self.db.query(DownloadJob).filter(
+            DownloadJob.car_number == car_number
+        ).order_by(desc(DownloadJob.created_at)).first()
+
     def get_download_by_id(self, job_id: int) -> Optional[DownloadJob]:
         """
         Busca um job pelo ID.
@@ -145,6 +183,49 @@ class DataRepository:
             DownloadJob.state == state,
             DownloadJob.polygon == polygon
         ).order_by(desc(DownloadJob.created_at)).first()
+
+    def get_latest_download_by_state(self, state: str) -> Optional[DownloadJob]:
+        """
+        Retorna o download mais recente de qualquer polígono para um estado.
+        
+        Args:
+            state: Sigla do estado
+            
+        Returns:
+            DownloadJob ou None
+        """
+        return self.db.query(DownloadJob).filter(
+            DownloadJob.state == state,
+            DownloadJob.status == 'completed'
+        ).order_by(desc(DownloadJob.completed_at)).first()
+
+    def get_latest_downloads_by_states(self) -> Dict[str, Optional[DownloadJob]]:
+        """
+        Retorna os downloads mais recentes de todos os estados em uma única query.
+        
+        Returns:
+            Dicionário {state: DownloadJob} com último download por estado
+        """
+        from sqlalchemy import distinct
+        from sqlalchemy.sql import text
+        
+        # Subquery para encontrar a data mais recente por estado
+        subquery = self.db.query(
+            DownloadJob.state,
+            func.max(DownloadJob.completed_at).label('max_completed')
+        ).filter(
+            DownloadJob.status == 'completed'
+        ).group_by(DownloadJob.state).subquery()
+        
+        # Query principal fazendo JOIN com a subquery
+        results = self.db.query(DownloadJob).join(
+            subquery,
+            (DownloadJob.state == subquery.c.state) & 
+            (DownloadJob.completed_at == subquery.c.max_completed)
+        ).all()
+        
+        # Converter para dicionário
+        return {job.state: job for job in results}
 
     def get_downloads_by_status(self, status: str) -> List[DownloadJob]:
         """
@@ -377,3 +458,148 @@ class DataRepository:
         return self.db.query(ScheduledTask).order_by(
             desc(ScheduledTask.started_at)
         ).limit(limit).all()
+
+    # ===== JobConfiguration =====
+
+    def get_job_config(self, job_id: str) -> Optional['JobConfiguration']:
+        """
+        Busca configuração de um job pelo ID.
+        
+        Args:
+            job_id: ID do job
+            
+        Returns:
+            JobConfiguration ou None
+        """
+        from app.models import JobConfiguration
+        return self.db.query(JobConfiguration).filter(
+            JobConfiguration.job_id == job_id
+        ).first()
+
+    def get_all_job_configs(self) -> List['JobConfiguration']:
+        """
+        Retorna todas as configurações de jobs.
+        
+        Returns:
+            Lista de JobConfiguration
+        """
+        from app.models import JobConfiguration
+        return self.db.query(JobConfiguration).all()
+
+    def save_job_config(
+        self,
+        job_id: str,
+        job_name: str,
+        is_active: bool,
+        trigger_type: str,
+        cron_expression: Optional[str] = None,
+        interval_minutes: Optional[int] = None,
+        config_data: Optional[Dict] = None
+    ) -> 'JobConfiguration':
+        """
+        Salva ou atualiza configuração de um job.
+        
+        Args:
+            job_id: ID do job
+            job_name: Nome do job
+            is_active: Se está ativo
+            trigger_type: Tipo de trigger (cron/interval)
+            cron_expression: Expressão cron
+            interval_minutes: Intervalo em minutos
+            config_data: Dados adicionais
+            
+        Returns:
+            JobConfiguration salvo
+        """
+        from app.models import JobConfiguration
+        
+        existing = self.get_job_config(job_id)
+        
+        if existing:
+            existing.job_name = job_name
+            existing.is_active = is_active
+            existing.trigger_type = trigger_type
+            existing.cron_expression = cron_expression
+            existing.interval_minutes = interval_minutes
+            existing.config_data = config_data
+            existing.updated_at = datetime.utcnow()
+            self.db.commit()
+            self.db.refresh(existing)
+            return existing
+        else:
+            config = JobConfiguration(
+                job_id=job_id,
+                job_name=job_name,
+                is_active=is_active,
+                trigger_type=trigger_type,
+                cron_expression=cron_expression,
+                interval_minutes=interval_minutes,
+                config_data=config_data
+            )
+            self.db.add(config)
+            self.db.commit()
+            self.db.refresh(config)
+            return config
+
+    # ===== AppSettings =====
+
+    def get_setting(self, key: str) -> Optional['AppSettings']:
+        """
+        Busca uma configuração pela chave.
+        
+        Args:
+            key: Chave da configuração
+            
+        Returns:
+            AppSettings ou None
+        """
+        from app.models import AppSettings
+        return self.db.query(AppSettings).filter(
+            AppSettings.key == key
+        ).first()
+
+    def get_all_settings(self) -> Dict[str, Any]:
+        """
+        Retorna todas as configurações como dicionário.
+        
+        Returns:
+            Dicionário {key: value}
+        """
+        from app.models import AppSettings
+        settings = self.db.query(AppSettings).all()
+        return {s.key: s.value for s in settings}
+
+    def save_setting(self, key: str, value: Any, description: Optional[str] = None) -> 'AppSettings':
+        """
+        Salva ou atualiza uma configuração.
+        
+        Args:
+            key: Chave da configuração
+            value: Valor (será armazenado como JSON)
+            description: Descrição da configuração
+            
+        Returns:
+            AppSettings salvo
+        """
+        from app.models import AppSettings
+        
+        existing = self.get_setting(key)
+        
+        if existing:
+            existing.value = value
+            if description:
+                existing.description = description
+            existing.updated_at = datetime.utcnow()
+            self.db.commit()
+            self.db.refresh(existing)
+            return existing
+        else:
+            setting = AppSettings(
+                key=key,
+                value=value,
+                description=description
+            )
+            self.db.add(setting)
+            self.db.commit()
+            self.db.refresh(setting)
+            return setting

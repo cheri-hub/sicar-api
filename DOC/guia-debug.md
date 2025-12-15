@@ -580,6 +580,160 @@ pip install --upgrade debugpy
 
 ---
 
+## � Debugging Específico: Problemas de Download
+
+### Problema: Arquivos Corrompidos ou Downloads Falhando
+
+Este é um problema real que foi resolvido em dezembro/2025. Veja o processo de debug:
+
+#### Sintomas
+
+- HTTP 200 mas arquivo ZIP corrompido
+- Erro ao extrair arquivo baixado
+- Arquivo menor ou maior que esperado
+- Conteúdo estranho quando abre no editor de texto
+
+#### Como Debugar
+
+**1. Adicione breakpoint na função de download**
+
+```python
+# Em SICAR/SICAR/sicar.py, linha ~512
+if response.status_code == 200:
+    content = response.content  # ← BREAKPOINT AQUI
+```
+
+**2. Inspecione o conteúdo da resposta**
+
+No Debug Console:
+```python
+# Ver primeiros bytes (deve ser cabeçalho ZIP se binário)
+>>> response.content[:100]
+b'PK\x03\x04\x14\x00\x08\x08...'  # ✅ ZIP binário válido
+
+# OU pode ser base64 data URL
+>>> response.text[:50]
+'data:application/zip;base64,UEsDBBQACAgIAMJcj...'  # ⚠️ Base64!
+
+# Ver tamanho
+>>> len(response.content)
+2547890
+
+# Ver headers
+>>> dict(response.headers)
+{'content-type': 'text/plain', ...}  # ⚠️ text/plain sugere base64
+```
+
+**3. Detecte o formato**
+
+```python
+# No Debug Console
+>>> response.text.startswith("data:application/zip;base64,")
+True  # ← Está em base64!
+
+# Ou verificar magic bytes
+>>> response.content[:2]
+b'da'  # ← Não é 'PK' (ZIP magic bytes)
+```
+
+**4. Teste decodificação manual**
+
+```python
+# No Debug Console se for base64
+>>> import base64
+>>> base64_data = response.text.split(",", 1)[1]
+>>> decoded = base64.b64decode(base64_data)
+>>> decoded[:2]
+b'PK'  # ✅ Agora sim, é um ZIP válido!
+>>> len(decoded)
+1898745  # Menor que o base64 (como esperado)
+```
+
+#### Solução Implementada
+
+O código agora detecta automaticamente:
+
+```python
+if response.text.startswith("data:application/zip;base64,"):
+    import base64
+    base64_data = response.text.split(",", 1)[1]
+    content = base64.b64decode(base64_data)
+else:
+    content = response.content  # Binário direto
+```
+
+#### Verificando se Correção Está Ativa
+
+```python
+# No Debug Console, após importar SICAR
+>>> import inspect
+>>> source = inspect.getsource(sicar._download_property_shapefile)
+>>> "base64" in source
+True  # ✅ Correção está no código
+
+# Ou teste na prática
+>>> sicar.download_by_car_number("SP-3538709-...", debug=True)
+# Deve mostrar: "Downloaded successfully via POST: XXXX bytes"
+```
+
+### Problema: Captcha Sempre Falhando
+
+#### Como Debugar
+
+**1. Habilite modo debug**
+
+```python
+sicar = Sicar()
+result = sicar.download_by_car_number(
+    "SP-...",
+    debug=True,  # ← Ativa logs detalhados
+    tries=5
+)
+```
+
+**2. Verifique os logs**
+
+```
+Tentativa 1/5: Resolvendo captcha...
+Captcha resolvido: ABC123
+Download URL: https://...exportShapeFile?idImovel=123&ReCaptcha=ABC123
+Trying POST method instead of GET...
+POST failed with status 400, trying GET...
+HTTP 400
+Response: {"error": "Invalid captcha"}
+```
+
+**3. Inspecione captcha resolvido**
+
+Adicione breakpoint após resolver:
+```python
+captcha = self._driver.solve()  # ← BREAKPOINT
+# Verificar: len(captcha), captcha.isalnum(), etc.
+```
+
+**4. Teste captcha manualmente**
+
+```bash
+# Copie URL completa do debug e teste no navegador
+curl 'https://consultapublica.car.gov.br/publico/imoveis/exportShapeFile' \
+  -d "idImovel=123&ReCaptcha=ABC123"
+```
+
+### Checklist de Debug para Downloads
+
+- [ ] Verificar se URL está correta
+- [ ] Verificar headers da requisição
+- [ ] Inspecionar primeiros bytes da resposta
+- [ ] Verificar `Content-Type` header
+- [ ] Testar se é base64 ou binário
+- [ ] Validar captcha resolvido
+- [ ] Verificar tamanho do arquivo baixado
+- [ ] Testar extrair ZIP manualmente
+- [ ] Verificar permissões de escrita no diretório
+- [ ] Ver logs do SICAR em modo debug
+
+---
+
 ## 💡 Dicas Pro
 
 1. **Use Conditional Breakpoints**: Evite pausar em loops desnecessariamente
@@ -589,6 +743,9 @@ pip install --upgrade debugpy
 5. **Aprenda Atalhos**: F5, F10, F11 aceleram muito o debug
 6. **Combine com Tests**: Debug de testes unitários é muito eficiente
 7. **Use Exception Breakpoints**: Pare automaticamente em qualquer exceção
+8. **Inspecione Respostas HTTP**: Sempre verifique `response.content`, `response.text` e `response.headers`
+9. **Magic Bytes**: ZIP começa com `PK` (50 4B), PDF com `%PDF`, etc.
+10. **Base64 Detection**: Texto que parece aleatório mas apenas A-Z, a-z, 0-9, +, /, =
 
 ---
 
