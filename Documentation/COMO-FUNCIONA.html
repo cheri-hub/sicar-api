@@ -1,0 +1,644 @@
+<!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <title>Como Funciona o Sistema SICAR API</title>
+            <style>
+/* From extension vscode.github */
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
+.vscode-dark img[src$=\#gh-light-mode-only],
+.vscode-light img[src$=\#gh-dark-mode-only],
+.vscode-high-contrast:not(.vscode-high-contrast-light) img[src$=\#gh-light-mode-only],
+.vscode-high-contrast-light img[src$=\#gh-dark-mode-only] {
+	display: none;
+}
+
+</style>
+            
+        <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/Microsoft/vscode/extensions/markdown-language-features/media/markdown.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/Microsoft/vscode/extensions/markdown-language-features/media/highlight.css">
+<style>
+            body {
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe WPC', 'Segoe UI', system-ui, 'Ubuntu', 'Droid Sans', sans-serif;
+                font-size: 14px;
+                line-height: 1.6;
+            }
+        </style>
+        <style>
+.task-list-item {
+    list-style-type: none;
+}
+
+.task-list-item-checkbox {
+    margin-left: -20px;
+    vertical-align: middle;
+    pointer-events: none;
+}
+</style>
+<style>
+:root {
+  --color-note: #0969da;
+  --color-tip: #1a7f37;
+  --color-warning: #9a6700;
+  --color-severe: #bc4c00;
+  --color-caution: #d1242f;
+  --color-important: #8250df;
+}
+
+</style>
+<style>
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-note: #2f81f7;
+    --color-tip: #3fb950;
+    --color-warning: #d29922;
+    --color-severe: #db6d28;
+    --color-caution: #f85149;
+    --color-important: #a371f7;
+  }
+}
+
+</style>
+<style>
+.markdown-alert {
+  padding: 0.5rem 1rem;
+  margin-bottom: 16px;
+  color: inherit;
+  border-left: .25em solid #888;
+}
+
+.markdown-alert>:first-child {
+  margin-top: 0
+}
+
+.markdown-alert>:last-child {
+  margin-bottom: 0
+}
+
+.markdown-alert .markdown-alert-title {
+  display: flex;
+  font-weight: 500;
+  align-items: center;
+  line-height: 1
+}
+
+.markdown-alert .markdown-alert-title .octicon {
+  margin-right: 0.5rem;
+  display: inline-block;
+  overflow: visible !important;
+  vertical-align: text-bottom;
+  fill: currentColor;
+}
+
+.markdown-alert.markdown-alert-note {
+  border-left-color: var(--color-note);
+}
+
+.markdown-alert.markdown-alert-note .markdown-alert-title {
+  color: var(--color-note);
+}
+
+.markdown-alert.markdown-alert-important {
+  border-left-color: var(--color-important);
+}
+
+.markdown-alert.markdown-alert-important .markdown-alert-title {
+  color: var(--color-important);
+}
+
+.markdown-alert.markdown-alert-warning {
+  border-left-color: var(--color-warning);
+}
+
+.markdown-alert.markdown-alert-warning .markdown-alert-title {
+  color: var(--color-warning);
+}
+
+.markdown-alert.markdown-alert-tip {
+  border-left-color: var(--color-tip);
+}
+
+.markdown-alert.markdown-alert-tip .markdown-alert-title {
+  color: var(--color-tip);
+}
+
+.markdown-alert.markdown-alert-caution {
+  border-left-color: var(--color-caution);
+}
+
+.markdown-alert.markdown-alert-caution .markdown-alert-title {
+  color: var(--color-caution);
+}
+
+</style>
+        
+        </head>
+        <body class="vscode-body vscode-light">
+            <h1 id="como-funciona-o-sistema-sicar-api">Como Funciona o Sistema SICAR API</h1>
+<h2 id="visão-geral">Visão Geral</h2>
+<p>Sistema automatizado para download e gerenciamento de dados geoespaciais do SICAR, com interface web para monitoramento e controle.</p>
+<hr>
+<h2 id="1-inicialização-do-sistema">1. Inicialização do Sistema</h2>
+<h3 id="backend-startup">Backend Startup</h3>
+<pre><code class="language-python"><span class="hljs-comment"># app/main.py - lifespan context</span>
+<span class="hljs-keyword">async</span> <span class="hljs-keyword">def</span> <span class="hljs-title function_">lifespan</span>(<span class="hljs-params">app: FastAPI</span>):
+    <span class="hljs-comment"># 1. Conectar ao PostgreSQL</span>
+    init_db()
+    check_connection()
+    
+    <span class="hljs-comment"># 2. Criar tabelas se não existirem</span>
+    Base.metadata.create_all(bind=engine)
+    
+    <span class="hljs-comment"># 3. Iniciar APScheduler</span>
+    scheduler.start()  <span class="hljs-comment"># Carrega jobs do banco</span>
+    
+    <span class="hljs-keyword">yield</span>
+    
+    <span class="hljs-comment"># Shutdown: parar scheduler</span>
+    scheduler.stop()
+</code></pre>
+<p><strong>Fluxo de Inicialização</strong>:</p>
+<ol>
+<li>Lê variáveis de ambiente (<code>.env</code>)</li>
+<li>Conecta ao PostgreSQL</li>
+<li>Cria/atualiza schema do banco</li>
+<li>Carrega configurações dos jobs do banco (<code>job_configurations</code>)</li>
+<li>Inicia APScheduler com jobs configurados</li>
+<li>API fica pronta para receber requisições</li>
+</ol>
+<hr>
+<h2 id="2-download-automatizado">2. Download Automatizado</h2>
+<h3 id="execução-diária">Execução Diária</h3>
+<p><strong>Trigger</strong>: Cron expression <code>0 0 2 * * *</code> (diariamente às 2h AM)</p>
+<pre><code>02:00 → APScheduler dispara
+        ↓
+    _daily_collection_job()
+        ↓
+    Para cada estado configurado:
+        ↓
+    1. Acessa SICAR website
+    2. Resolve CAPTCHA (OCR)
+    3. Seleciona estado + polígono
+    4. Baixa arquivo ZIP
+    5. Salva em downloads/{STATE}/{POLYGON}/
+    6. Registra metadados no banco
+        ↓
+    Atualiza log em scheduled_tasks
+</code></pre>
+<h3 id="código-simplificado">Código Simplificado</h3>
+<pre><code class="language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">_daily_collection_job</span>(<span class="hljs-params">self</span>):
+    db = SessionLocal()
+    repository = DataRepository(db)
+    
+    <span class="hljs-comment"># 1. Criar log de execução</span>
+    task = repository.create_scheduled_task(
+        task_name=<span class="hljs-string">&quot;Coleta Diária SICAR&quot;</span>,
+        task_type=<span class="hljs-string">&quot;daily_download&quot;</span>
+    )
+    
+    <span class="hljs-comment"># 2. Executar downloads</span>
+    service = SicarService(db)
+    result = service.execute_daily_collection()
+    
+    <span class="hljs-comment"># 3. Registrar resultado</span>
+    repository.complete_scheduled_task(
+        task_id=task.<span class="hljs-built_in">id</span>,
+        result=result  <span class="hljs-comment"># {status, states_processed, total_jobs, ...}</span>
+    )
+</code></pre>
+<hr>
+<h2 id="3-download-manual-via-frontend">3. Download Manual (via Frontend)</h2>
+<h3 id="passo-a-passo">Passo a Passo</h3>
+<p><strong>1. Usuário clica &quot;Download&quot; no frontend</strong></p>
+<pre><code class="language-typescript"><span class="hljs-comment">// Frontend: Downloads.tsx</span>
+<span class="hljs-keyword">const</span> <span class="hljs-title function_">handleDownload</span> = <span class="hljs-keyword">async</span> (<span class="hljs-params">state: <span class="hljs-built_in">string</span></span>) =&gt; {
+  <span class="hljs-keyword">await</span> <span class="hljs-title function_">createStateDownload</span>({
+    <span class="hljs-attr">state</span>: state,
+    <span class="hljs-attr">polygons</span>: [<span class="hljs-string">&#x27;APPS&#x27;</span>, <span class="hljs-string">&#x27;LEGAL_RESERVE&#x27;</span>]
+  });
+  <span class="hljs-comment">// Recarrega lista de downloads</span>
+  <span class="hljs-title function_">loadDownloads</span>();
+};
+</code></pre>
+<p><strong>2. Frontend faz POST para API</strong></p>
+<pre><code class="language-http">POST /downloads/state
+<span class="hljs-attribute">Content-Type</span><span class="hljs-punctuation">: </span>application/json
+
+{
+  &quot;state&quot;: &quot;SP&quot;,
+  &quot;polygons&quot;: [&quot;APPS&quot;, &quot;LEGAL_RESERVE&quot;]
+}
+</code></pre>
+<p><strong>3. Backend processa em background</strong></p>
+<pre><code class="language-python"><span class="hljs-meta">@app.post(<span class="hljs-params"><span class="hljs-string">&quot;/downloads/state&quot;</span></span>)</span>
+<span class="hljs-keyword">async</span> <span class="hljs-keyword">def</span> <span class="hljs-title function_">create_state_download</span>(<span class="hljs-params">
+    request: StateDownloadRequest,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(<span class="hljs-params">get_db</span>)
+</span>):
+    <span class="hljs-comment"># Adiciona tarefa em background</span>
+    background_tasks.add_task(
+        download_state_background,
+        state=request.state,
+        polygons=request.polygons,
+        db=db
+    )
+    
+    <span class="hljs-comment"># Retorna imediatamente (202 Accepted)</span>
+    <span class="hljs-keyword">return</span> {<span class="hljs-string">&quot;message&quot;</span>: <span class="hljs-string">&quot;Download iniciado&quot;</span>}
+</code></pre>
+<p><strong>4. Execução assíncrona</strong></p>
+<pre><code class="language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">download_state_background</span>(<span class="hljs-params">state, polygons, db</span>):
+    service = SicarService(db)
+    
+    <span class="hljs-keyword">for</span> polygon <span class="hljs-keyword">in</span> polygons:
+        <span class="hljs-comment"># Criar job no banco</span>
+        job = DownloadJob(
+            state=state,
+            polygon=polygon,
+            status=<span class="hljs-string">&quot;pending&quot;</span>
+        )
+        db.add(job)
+        db.commit()
+        
+        <span class="hljs-comment"># Executar download</span>
+        <span class="hljs-keyword">try</span>:
+            file_path = service.download_polygon(state, polygon)
+            job.status = <span class="hljs-string">&quot;completed&quot;</span>
+            job.file_path = file_path
+        <span class="hljs-keyword">except</span> Exception <span class="hljs-keyword">as</span> e:
+            job.status = <span class="hljs-string">&quot;failed&quot;</span>
+            job.error_message = <span class="hljs-built_in">str</span>(e)
+        
+        db.commit()
+</code></pre>
+<p><strong>5. Frontend consulta status</strong></p>
+<pre><code class="language-typescript"><span class="hljs-comment">// Polling a cada 5 segundos</span>
+<span class="hljs-title function_">useEffect</span>(<span class="hljs-function">() =&gt;</span> {
+  <span class="hljs-keyword">const</span> interval = <span class="hljs-built_in">setInterval</span>(loadDownloads, <span class="hljs-number">5000</span>);
+  <span class="hljs-keyword">return</span> <span class="hljs-function">() =&gt;</span> <span class="hljs-built_in">clearInterval</span>(interval);
+}, []);
+</code></pre>
+<hr>
+<h2 id="4-interação-com-sicar-website">4. Interação com SICAR Website</h2>
+<h3 id="processo-de-download">Processo de Download</h3>
+<pre><code>1. Acessar https://www.car.gov.br/publico/municipios/downloads
+   ↓
+2. Resolver CAPTCHA
+   - Screenshot do CAPTCHA
+   - OCR com Tesseract/PaddleOCR
+   - Tentar até 3 vezes se falhar
+   ↓
+3. Selecionar estado (dropdown)
+   ↓
+4. Selecionar polígono (dropdown)
+   ↓
+5. Clicar &quot;Download&quot;
+   ↓
+6. Aguardar geração do arquivo
+   ↓
+7. Baixar ZIP file
+   ↓
+8. Salvar localmente
+   ↓
+9. Extrair shapefiles (opcional)
+   ↓
+10. Registrar no banco de dados
+</code></pre>
+<h3 id="biblioteca-sicar">Biblioteca SICAR</h3>
+<pre><code class="language-python"><span class="hljs-keyword">from</span> SICAR <span class="hljs-keyword">import</span> Sicar
+
+<span class="hljs-comment"># Inicializar</span>
+sicar = Sicar()
+
+<span class="hljs-comment"># Download</span>
+polygon_shapefile = sicar.download_state(
+    state=<span class="hljs-string">&#x27;SP&#x27;</span>,
+    polygon=<span class="hljs-string">&#x27;APPS&#x27;</span>
+)
+
+<span class="hljs-comment"># Retorna objeto Polygon com:</span>
+<span class="hljs-comment"># - file_path: caminho do ZIP</span>
+<span class="hljs-comment"># - state: estado</span>
+<span class="hljs-comment"># - polygon: tipo de polígono</span>
+<span class="hljs-comment"># - download_date: timestamp</span>
+</code></pre>
+<hr>
+<h2 id="5-agendamento-de-tarefas">5. Agendamento de Tarefas</h2>
+<h3 id="configuração-de-jobs">Configuração de Jobs</h3>
+<p><strong>Job Definition</strong> (no banco de dados):</p>
+<pre><code class="language-sql"><span class="hljs-keyword">INSERT</span> <span class="hljs-keyword">INTO</span> job_configurations (
+    job_id,
+    job_name,
+    is_active,
+    trigger_type,
+    cron_expression
+) <span class="hljs-keyword">VALUES</span> (
+    <span class="hljs-string">&#x27;daily_sicar_collection&#x27;</span>,
+    <span class="hljs-string">&#x27;Coleta Diária SICAR&#x27;</span>,
+    <span class="hljs-literal">TRUE</span>,
+    <span class="hljs-string">&#x27;cron&#x27;</span>,
+    <span class="hljs-string">&#x27;0 0 2 * * *&#x27;</span>  <span class="hljs-comment">-- segundo minuto hora dia mês dia_semana</span>
+);
+</code></pre>
+<p><strong>Cron Expression Format</strong>:</p>
+<ul>
+<li>6 partes: <code>second minute hour day month day_of_week</code></li>
+<li>Exemplo: <code>0 0 2 * * *</code> = Todo dia às 2h00m00s</li>
+<li><code>*</code> significa &quot;qualquer valor&quot;</li>
+</ul>
+<h3 id="pauseresume">Pause/Resume</h3>
+<p><strong>Pausar job</strong>:</p>
+<pre><code class="language-http">POST /scheduler/jobs/daily_sicar_collection/pause
+</code></pre>
+<pre><code class="language-python"><span class="hljs-comment"># Backend atualiza banco</span>
+job_config.is_active = <span class="hljs-literal">False</span>
+db.commit()
+
+<span class="hljs-comment"># APScheduler pausa execução</span>
+scheduler.pause_job(job_id)
+</code></pre>
+<p><strong>Retomar job</strong>:</p>
+<pre><code class="language-http">POST /scheduler/jobs/daily_sicar_collection/resume
+</code></pre>
+<pre><code class="language-python">job_config.is_active = <span class="hljs-literal">True</span>
+db.commit()
+scheduler.resume_job(job_id)
+</code></pre>
+<p><strong>Estado persiste</strong>: Se reiniciar o backend, o job continua pausado/ativo conforme salvo no banco.</p>
+<hr>
+<h2 id="6-gerenciamento-de-timezone">6. Gerenciamento de Timezone</h2>
+<h3 id="problema-original">Problema Original</h3>
+<pre><code class="language-javascript"><span class="hljs-comment">// Backend retorna (UTC sem &#x27;Z&#x27;):</span>
+<span class="hljs-string">&quot;2025-12-15T19:30:00.123456&quot;</span>
+
+<span class="hljs-comment">// JavaScript interpreta como LOCAL time:</span>
+<span class="hljs-keyword">new</span> <span class="hljs-title class_">Date</span>(<span class="hljs-string">&quot;2025-12-15T19:30:00.123456&quot;</span>)
+<span class="hljs-comment">// → 19:30 BRT (errado, deveria ser UTC)</span>
+</code></pre>
+<h3 id="solução-timezonemiddleware">Solução: TimezoneMiddleware</h3>
+<pre><code class="language-python"><span class="hljs-keyword">class</span> <span class="hljs-title class_">TimezoneMiddleware</span>(<span class="hljs-title class_ inherited__">BaseHTTPMiddleware</span>):
+    <span class="hljs-keyword">async</span> <span class="hljs-keyword">def</span> <span class="hljs-title function_">dispatch</span>(<span class="hljs-params">self, request, call_next</span>):
+        response = <span class="hljs-keyword">await</span> call_next(request)
+        
+        <span class="hljs-keyword">if</span> response.headers.get(<span class="hljs-string">&quot;content-type&quot;</span>) == <span class="hljs-string">&quot;application/json&quot;</span>:
+            body = response.body.decode()
+            
+            <span class="hljs-comment"># Adiciona &#x27;Z&#x27; aos timestamps</span>
+            modified = re.sub(
+                <span class="hljs-string">r&#x27;&quot;(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+)&quot;&#x27;</span>,
+                <span class="hljs-string">r&#x27;&quot;\1Z&quot;&#x27;</span>,
+                body
+            )
+            
+            <span class="hljs-keyword">return</span> Response(
+                content=modified,
+                headers=<span class="hljs-built_in">dict</span>(response.headers)
+            )
+</code></pre>
+<p><strong>Resultado</strong>:</p>
+<pre><code class="language-json"><span class="hljs-punctuation">{</span>
+  <span class="hljs-attr">&quot;started_at&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;2025-12-15T19:30:00.123456Z&quot;</span>  <span class="hljs-comment">// ← &#x27;Z&#x27; adicionado</span>
+<span class="hljs-punctuation">}</span>
+</code></pre>
+<p><strong>Frontend</strong>:</p>
+<pre><code class="language-typescript"><span class="hljs-comment">// Agora interpreta corretamente como UTC</span>
+<span class="hljs-keyword">const</span> date = <span class="hljs-keyword">new</span> <span class="hljs-title class_">Date</span>(<span class="hljs-string">&quot;2025-12-15T19:30:00.123456Z&quot;</span>);
+
+<span class="hljs-comment">// Converte para timezone do usuário</span>
+<span class="hljs-keyword">const</span> formatted = <span class="hljs-keyword">new</span> <span class="hljs-title class_">Intl</span>.<span class="hljs-title class_">DateTimeFormat</span>(<span class="hljs-string">&#x27;pt-BR&#x27;</span>, {
+  <span class="hljs-attr">timeZone</span>: <span class="hljs-string">&#x27;America/Sao_Paulo&#x27;</span>,
+  <span class="hljs-attr">dateStyle</span>: <span class="hljs-string">&#x27;short&#x27;</span>,
+  <span class="hljs-attr">timeStyle</span>: <span class="hljs-string">&#x27;medium&#x27;</span>
+}).<span class="hljs-title function_">format</span>(date);
+<span class="hljs-comment">// → &quot;15/12/2025 16:30:00&quot; (BRT = UTC-3)</span>
+</code></pre>
+<hr>
+<h2 id="7-logs-e-monitoramento">7. Logs e Monitoramento</h2>
+<h3 id="sistema-de-logs">Sistema de Logs</h3>
+<p><strong>Cada execução cria registro</strong>:</p>
+<pre><code class="language-python"><span class="hljs-comment"># Início</span>
+task = create_scheduled_task(
+    task_name=<span class="hljs-string">&quot;Coleta Diária&quot;</span>,
+    task_type=<span class="hljs-string">&quot;daily_download&quot;</span>
+)  <span class="hljs-comment"># status=&#x27;running&#x27;</span>
+
+<span class="hljs-comment"># Sucesso</span>
+complete_scheduled_task(
+    task_id=task.<span class="hljs-built_in">id</span>,
+    result={
+        <span class="hljs-string">&quot;status&quot;</span>: <span class="hljs-string">&quot;completed&quot;</span>,
+        <span class="hljs-string">&quot;states_processed&quot;</span>: <span class="hljs-number">3</span>,
+        <span class="hljs-string">&quot;total_jobs&quot;</span>: <span class="hljs-number">6</span>,
+        <span class="hljs-string">&quot;successful&quot;</span>: <span class="hljs-number">5</span>,
+        <span class="hljs-string">&quot;failed&quot;</span>: <span class="hljs-number">1</span>
+    }
+)  <span class="hljs-comment"># status=&#x27;completed&#x27;</span>
+
+<span class="hljs-comment"># Erro</span>
+complete_scheduled_task(
+    task_id=task.<span class="hljs-built_in">id</span>,
+    result={<span class="hljs-string">&quot;status&quot;</span>: <span class="hljs-string">&quot;failed&quot;</span>},
+    error=<span class="hljs-string">&quot;Connection timeout&quot;</span>
+)  <span class="hljs-comment"># status=&#x27;failed&#x27;, error_message=&#x27;...&#x27;</span>
+</code></pre>
+<h3 id="visualização-no-frontend">Visualização no Frontend</h3>
+<p><strong>Componente Logs.tsx</strong>:</p>
+<ul>
+<li>Consulta <code>GET /scheduler/tasks?limit=50</code></li>
+<li>Exibe tabela com:
+<ul>
+<li>ID, Task Name, Status (badge colorido)</li>
+<li>Timestamps (início/fim)</li>
+<li>Duração</li>
+<li>Detalhes expansíveis (resultado JSON ou erro)</li>
+</ul>
+</li>
+<li>Auto-refresh opcional (10s)</li>
+<li>Filtro de quantidade (20/50/100/200)</li>
+</ul>
+<hr>
+<h2 id="8-fluxo-completo-do-agendamento-ao-resultado">8. Fluxo Completo: Do Agendamento ao Resultado</h2>
+<pre><code>Dia 15/12 01:00 AM
+    ↓
+APScheduler trigger: update_release_dates
+    ↓
+TaskScheduler._update_releases_job()
+    ↓
+1. Cria log (scheduled_tasks, status=running)
+    ↓
+2. SicarService.get_and_save_release_dates()
+   - Acessa SICAR website
+   - Faz scraping das datas
+   - Salva em state_releases
+    ↓
+3. Registra resultado no log (status=completed)
+    ↓
+Dia 15/12 02:00 AM
+    ↓
+APScheduler trigger: daily_sicar_collection
+    ↓
+TaskScheduler._daily_collection_job()
+    ↓
+1. Cria log
+    ↓
+2. Para cada estado em AUTO_DOWNLOAD_STATES:
+   - SicarService.download_state(state)
+   - Para cada polígono em AUTO_DOWNLOAD_POLYGONS:
+     * Cria download_job (status=pending)
+     * Executa download
+     * Atualiza download_job (status=completed/failed)
+    ↓
+3. Registra resultado agregado no log
+    ↓
+Frontend (usuário acessa às 08:00 AM)
+    ↓
+1. Carrega ReleaseDates → GET /releases
+   - Vê datas atualizadas às 01:00
+    ↓
+2. Carrega Downloads → GET /downloads
+   - Vê downloads executados às 02:00
+    ↓
+3. Carrega Logs → GET /scheduler/tasks
+   - Vê execuções de 01:00 e 02:00
+   - Status, duração, resultados
+</code></pre>
+<hr>
+<h2 id="9-configurações-persistentes">9. Configurações Persistentes</h2>
+<h3 id="salvar-configuração">Salvar Configuração</h3>
+<pre><code class="language-http">PUT /settings/timezone
+<span class="hljs-attribute">Content-Type</span><span class="hljs-punctuation">: </span>application/json
+
+{
+  &quot;value&quot;: &quot;America/Sao_Paulo&quot;,
+  &quot;description&quot;: &quot;Timezone para exibição&quot;
+}
+</code></pre>
+<p><strong>Backend</strong>:</p>
+<pre><code class="language-python"><span class="hljs-meta">@app.put(<span class="hljs-params"><span class="hljs-string">&quot;/settings/{key}&quot;</span></span>)</span>
+<span class="hljs-keyword">async</span> <span class="hljs-keyword">def</span> <span class="hljs-title function_">update_setting</span>(<span class="hljs-params">key: <span class="hljs-built_in">str</span>, data: SettingUpdate</span>):
+    repository.save_setting(
+        key=key,
+        value=data.value,  <span class="hljs-comment"># Pode ser qualquer tipo JSON</span>
+        description=data.description
+    )
+</code></pre>
+<p><strong>Banco de Dados</strong>:</p>
+<pre><code class="language-sql"><span class="hljs-keyword">INSERT</span> <span class="hljs-keyword">INTO</span> app_settings (key, <span class="hljs-keyword">value</span>, description)
+<span class="hljs-keyword">VALUES</span> (<span class="hljs-string">&#x27;timezone&#x27;</span>, <span class="hljs-string">&#x27;&quot;America/Sao_Paulo&quot;&#x27;</span>, <span class="hljs-string">&#x27;Timezone para exibição&#x27;</span>)
+<span class="hljs-keyword">ON</span> CONFLICT (key) DO <span class="hljs-keyword">UPDATE</span>
+<span class="hljs-keyword">SET</span> <span class="hljs-keyword">value</span> <span class="hljs-operator">=</span> EXCLUDED.value,
+    description <span class="hljs-operator">=</span> EXCLUDED.description,
+    updated_at <span class="hljs-operator">=</span> NOW();
+</code></pre>
+<h3 id="carregar-no-frontend">Carregar no Frontend</h3>
+<pre><code class="language-typescript"><span class="hljs-comment">// SettingsPage.tsx - useEffect</span>
+<span class="hljs-keyword">const</span> <span class="hljs-title function_">loadSettings</span> = <span class="hljs-keyword">async</span> (<span class="hljs-params"></span>) =&gt; {
+  <span class="hljs-keyword">const</span> data = <span class="hljs-keyword">await</span> <span class="hljs-title function_">getSettings</span>();
+  <span class="hljs-title function_">setTimezone</span>(data.<span class="hljs-property">settings</span>.<span class="hljs-property">timezone</span> || <span class="hljs-string">&#x27;UTC&#x27;</span>);
+  
+  <span class="hljs-comment">// Salva no localStorage como backup</span>
+  <span class="hljs-variable language_">localStorage</span>.<span class="hljs-title function_">setItem</span>(<span class="hljs-string">&#x27;timezone&#x27;</span>, data.<span class="hljs-property">settings</span>.<span class="hljs-property">timezone</span>);
+};
+</code></pre>
+<hr>
+<h2 id="10-download-por-número-car">10. Download por Número CAR</h2>
+<h3 id="fluxo-específico">Fluxo Específico</h3>
+<p><strong>1. Buscar propriedade</strong>:</p>
+<pre><code class="language-http">GET /search/car/SP-1234567-ABCDEFGH
+</code></pre>
+<p>→ Retorna dados da propriedade se já existir no banco</p>
+<p><strong>2. Solicitar download</strong>:</p>
+<pre><code class="language-http">POST /downloads/car
+{
+  &quot;car_number&quot;: &quot;SP-1234567-ABCDEFGH&quot;,
+  &quot;force&quot;: false
+}
+</code></pre>
+<p><strong>3. Backend</strong>:</p>
+<pre><code class="language-python"><span class="hljs-comment"># 1. Extrair estado do CAR</span>
+state = car_number.split(<span class="hljs-string">&#x27;-&#x27;</span>)[<span class="hljs-number">0</span>]  <span class="hljs-comment"># &quot;SP&quot;</span>
+
+<span class="hljs-comment"># 2. Criar job específico</span>
+job = DownloadJob(
+    car_number=car_number,
+    state=state,
+    polygon=<span class="hljs-string">&quot;ALL&quot;</span>,  <span class="hljs-comment"># Baixa todos os polígonos</span>
+    status=<span class="hljs-string">&quot;pending&quot;</span>
+)
+
+<span class="hljs-comment"># 3. Executar download via SICAR lib</span>
+sicar.download_by_car(car_number)
+
+<span class="hljs-comment"># 4. Atualizar job</span>
+job.status = <span class="hljs-string">&quot;completed&quot;</span>
+</code></pre>
+<p><strong>4. Consultar status</strong>:</p>
+<pre><code class="language-http">GET /downloads/car/SP-1234567-ABCDEFGH
+</code></pre>
+<p>→ Retorna download_job específico</p>
+<hr>
+<h2 id="resumo-dos-principais-processos">Resumo dos Principais Processos</h2>
+<table>
+<thead>
+<tr>
+<th>Processo</th>
+<th>Trigger</th>
+<th>Resultado</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Atualização de Releases</strong></td>
+<td>Cron diário 01:00</td>
+<td>state_releases atualizado</td>
+</tr>
+<tr>
+<td><strong>Download Diário</strong></td>
+<td>Cron diário 02:00</td>
+<td>Arquivos baixados, download_jobs criados</td>
+</tr>
+<tr>
+<td><strong>Download Manual</strong></td>
+<td>POST /downloads/state</td>
+<td>Execução background, download_jobs criados</td>
+</tr>
+<tr>
+<td><strong>Download por CAR</strong></td>
+<td>POST /downloads/car</td>
+<td>Download específico de propriedade</td>
+</tr>
+<tr>
+<td><strong>Pausar Job</strong></td>
+<td>POST /scheduler/jobs/{id}/pause</td>
+<td>job_configurations.is_active = false</td>
+</tr>
+<tr>
+<td><strong>Reagendar Job</strong></td>
+<td>POST /scheduler/jobs/{id}/reschedule</td>
+<td>job_configurations atualizado</td>
+</tr>
+<tr>
+<td><strong>Salvar Setting</strong></td>
+<td>PUT /settings/{key}</td>
+<td>app_settings atualizado</td>
+</tr>
+<tr>
+<td><strong>Visualizar Logs</strong></td>
+<td>GET /scheduler/tasks</td>
+<td>Retorna scheduled_tasks</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<p><strong>Versão</strong>: 1.1.0<br>
+<strong>Data</strong>: 15/12/2025</p>
+
+            
+            
+        </body>
+        </html>

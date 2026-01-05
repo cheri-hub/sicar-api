@@ -9,17 +9,17 @@ Sistema full-stack para download automatizado e gerenciamento de dados do SICAR 
 │                      SICAR API v1.1.0                           │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                 │
-│  ┌──────────────┐      ┌──────────────┐      ┌──────────────┐ │
-│  │   Frontend   │◄────►│   Backend    │◄────►│  PostgreSQL  │ │
-│  │  React + TS  │      │  FastAPI     │      │   Database   │ │
-│  │  Vite + TW   │      │  Python 3.11 │      │              │ │
-│  └──────────────┘      └──────────────┘      └──────────────┘ │
+│  ┌──────────────┐      ┌──────────────┐      ┌──────────────┐   │
+│  │   Frontend   │◄────►│   Backend    │◄────►│  PostgreSQL  │   │
+│  │  React + TS  │      │  FastAPI     │      │   Database   │   │
+│  │  Vite + TW   │      │  Python 3.11 │      │              │   │
+│  └──────────────┘      └──────────────┘      └──────────────┘   │
 │         │                      │                      │         │
 │         │                      │                      │         │
-│         │              ┌───────▼──────────┐          │         │
-│         │              │   APScheduler    │          │         │
-│         │              │  (Task Queue)    │          │         │
-│         │              └───────┬──────────┘          │         │
+│         │              ┌───────▼──────────┐           │         │
+│         │              │   APScheduler    │           │         │
+│         │              │  (Task Queue)    │           │         │
+│         │              └───────┬──────────┘           │         │
 │         │                      │                      │         │
 │         └──────────────────────┼──────────────────────┘         │
 │                                │                                │
@@ -169,7 +169,7 @@ app/
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│ 1. APScheduler trigger (cron: diariamente às 02:00)        │
+│ 1. APScheduler trigger (cron: diariamente às 02:00)         │
 └────────────┬────────────────────────────────────────────────┘
              │
              ▼
@@ -181,7 +181,7 @@ app/
              │
              ▼
 ┌─────────────────────────────────────────────────────────────┐
-│ 3. SicarService processa cada estado configurado           │
+│ 3. SicarService processa cada estado configurado            │
 │    - Acessa SICAR website                                   │
 │    - Resolve CAPTCHA (OCR)                                  │
 │    - Baixa ZIP files                                        │
@@ -190,11 +190,11 @@ app/
              │
              ▼
 ┌─────────────────────────────────────────────────────────────┐
-│ 4. DataRepository salva metadados                          │
+│ 4. DataRepository salva metadados                           │
 │    - Cria download_jobs                                     │
 │    - Extrai shapefiles                                      │
 │    - Popula property_data                                   │
-│    - Atualiza scheduled_tasks com resultado                │
+│    - Atualiza scheduled_tasks com resultado                 │
 └─────────────────────────────────────────────────────────────┘
 ```
 

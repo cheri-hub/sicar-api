@@ -32,37 +32,37 @@ Implementamos um sistema de **busca + download** que:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                    NOSSA EXTENSÃO                                │
-│                                                                  │
+│                    NOSSA EXTENSÃO                               │
+│                                                                 │
 │  1. API Endpoint: POST /downloads/car                           │
-│     ↓                                                            │
+│     ↓                                                           │
 │  2. SicarService.download_by_car_number()                       │
-│     ↓                                                            │
+│     ↓                                                           │
 │  3. search_property_by_car() → GET /publico/imoveis/search      │
 │     • Busca por car_number                                      │
 │     • Extrai internal_id                                        │
-│     ↓                                                            │
+│     ↓                                                           │
 │  4. _download_car_shapefile() → POST /publico/imoveis/export... │
 │     • Resolve CAPTCHA (Tesseract/Paddle)                        │
 │     • Envia internal_id + captcha                               │
 │     • Detecta formato (base64 vs binary)                        │
 │     • Decodifica se necessário                                  │
-│     ↓                                                            │
+│     ↓                                                           │
 │  5. Save to downloads/CAR/{car_number}.zip                      │
-│     ↓                                                            │
+│     ↓                                                           │
 │  6. Parse metadata → PostgreSQL (property_data table)           │
-│                                                                  │
+│                                                                 │
 └─────────────────────────────────────────────────────────────────┘
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│              SICAR Package Original (Urbano Gilson)              │
-│                                                                  │
+│              SICAR Package Original (Urbano Gilson)             │
+│                                                                 │
 │  • Sicar.captcha() - Resolve CAPTCHA                            │
 │  • Polygon enum - Tipos de polígonos                            │
 │  • State enum - Estados brasileiros                             │
 │  • Drivers: Tesseract, Paddle                                   │
-│                                                                  │
+│                                                                 │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -526,14 +526,14 @@ CREATE TABLE property_data (
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                         USUÁRIO                                  │
+│                         USUÁRIO                                 │
 │  Frontend: Digita CAR "SP-3538709-ABC..."                       │
 │  Backend API: POST /downloads/car                               │
 └────────────────────┬────────────────────────────────────────────┘
                      │
                      ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                    1. VALIDAÇÃO                                  │
+│                    1. VALIDAÇÃO                                 │
 │  • Formato CAR válido? (regex)                                  │
 │  • Já existe download? (banco)                                  │
 │  • Force=True? (sobrescrever)                                   │
@@ -541,34 +541,34 @@ CREATE TABLE property_data (
                      │
                      ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                    2. CRIAR JOB                                  │
+│                    2. CRIAR JOB                                 │
 │  INSERT INTO download_jobs (car_number, status='running')       │
-│  job_id = 42                                                     │
+│  job_id = 42                                                    │
 └────────────────────┬────────────────────────────────────────────┘
                      │
                      ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │              3. BUSCA NO SICAR (Passo 1)                        │
-│  GET https://car.gov.br/publico/imoveis/search?text=SP-3538... │
-│                                                                  │
+│  GET https://car.gov.br/publico/imoveis/search?text=SP-3538...  │
+│                                                                 │
 │  Resposta JSON (DataTables):                                    │
-│  {                                                               │
+│  {                                                              │
 │    "recordsTotal": 1,                                           │
 │    "data": [{                                                   │
 │      "cod_imovel": "12345678",      ← ID INTERNO                │
 │      "cod_car": "SP-3538709-ABC",                               │
 │      "nom_munici": "São Paulo",                                 │
-│      ...                                                         │
-│    }]                                                            │
-│  }                                                               │
+│      ...                                                        │
+│    }]                                                           │
+│  }                                                              │
 └────────────────────┬────────────────────────────────────────────┘
                      │ internal_id = "12345678"
                      ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│              4. RESOLVER CAPTCHA                                 │
+│              4. RESOLVER CAPTCHA                                │
 │  GET https://car.gov.br/publico/imoveis/captcha                 │
-│  → Imagem PNG                                                    │
-│                                                                  │
+│  → Imagem PNG                                                   │
+│                                                                 │
 │  Tesseract/Paddle OCR:                                          │
 │  Imagem → "G7K2P"                                               │
 └────────────────────┬────────────────────────────────────────────┘
@@ -577,76 +577,76 @@ CREATE TABLE property_data (
 ┌─────────────────────────────────────────────────────────────────┐
 │           5. DOWNLOAD SHAPEFILE (Passo 2)                       │
 │  POST https://car.gov.br/publico/imoveis/exportShapeFile        │
-│                                                                  │
-│  Payload:                                                        │
-│  {                                                               │
+│                                                                 │
+│  Payload:                                                       │
+│  {                                                              │
 │    "idImovel": "12345678",                                      │
 │    "captcha": "G7K2P",                                          │
 │    "tipoExportacao": "COMPLETO"                                 │
-│  }                                                               │
-│                                                                  │
-│  Resposta:                                                       │
-│  data:application/zip;base64,UEsDBBQACAgIAMJcjls...            │
+│  }                                                              │
+│                                                                 │
+│  Resposta:                                                      │
+│  data:application/zip;base64,UEsDBBQACAgIAMJcjls...             │
 └────────────────────┬────────────────────────────────────────────┘
                      │
                      ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│              6. DETECTAR FORMATO                                 │
+│              6. DETECTAR FORMATO                                │
 │  if content.startswith('data:'):                                │
 │      → Base64 Data URL                                          │
 │      base64_content = content.split(',')[1]                     │
 │      zip_bytes = base64.b64decode(base64_content)               │
-│  else:                                                           │
+│  else:                                                          │
 │      → Binário direto                                           │
 │      zip_bytes = response.content                               │
-│                                                                  │
-│  Validar: zip_bytes.startswith(b'PK')? ✓                       │
+│                                                                 │
+│  Validar: zip_bytes.startswith(b'PK')? ✓                        │
 └────────────────────┬────────────────────────────────────────────┘
                      │
                      ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│              7. SALVAR ARQUIVO                                   │
+│              7. SALVAR ARQUIVO                                  │
 │  Path: downloads/CAR/SP-3538709-ABC....zip                      │
-│  Size: 15.3 MB                                                   │
+│  Size: 15.3 MB                                                  │
 └────────────────────┬────────────────────────────────────────────┘
                      │
                      ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│              8. PERSISTIR METADADOS                              │
-│  INSERT INTO property_data (                                     │
+│              8. PERSISTIR METADADOS                             │
+│  INSERT INTO property_data (                                    │
 │    internal_id='12345678',                                      │
 │    car_number='SP-3538709-ABC',                                 │
 │    municipio='São Paulo',                                       │
-│    area=245.8,                                                   │
-│    ...                                                           │
-│  )                                                               │
+│    area=245.8,                                                  │
+│    ...                                                          │
+│  )                                                              │
 └────────────────────┬────────────────────────────────────────────┘
                      │
                      ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│              9. ATUALIZAR JOB                                    │
-│  UPDATE download_jobs SET                                        │
+│              9. ATUALIZAR JOB                                   │
+│  UPDATE download_jobs SET                                       │
 │    status='completed',                                          │
 │    file_path='downloads/CAR/SP-3538709-ABC.zip',                │
 │    file_size=16035840,                                          │
 │    completed_at=NOW()                                           │
-│  WHERE id=42                                                     │
+│  WHERE id=42                                                    │
 └────────────────────┬────────────────────────────────────────────┘
                      │
                      ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                   10. RESPOSTA USUÁRIO                           │
-│  {                                                               │
+│                   10. RESPOSTA USUÁRIO                          │
+│  {                                                              │
 │    "status": "success",                                         │
 │    "job_id": 42,                                                │
-│    "file_path": "downloads/CAR/SP-3538709-ABC.zip",            │
+│    "file_path": "downloads/CAR/SP-3538709-ABC.zip",             │
 │    "file_size_mb": 15.3,                                        │
 │    "property_data": {                                           │
 │      "municipio": "São Paulo",                                  │
 │      "area": 245.8,                                             │
-│      ...                                                         │
-│    }                                                             │
-│  }                                                               │
+│      ...                                                        │
+│    }                                                            │
+│  }                                                              │
 └─────────────────────────────────────────────────────────────────┘
 ```
 

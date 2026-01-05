@@ -1,0 +1,499 @@
+<!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <title>Arquitetura do Sistema SICAR API</title>
+            <style>
+/* From extension vscode.github */
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
+.vscode-dark img[src$=\#gh-light-mode-only],
+.vscode-light img[src$=\#gh-dark-mode-only],
+.vscode-high-contrast:not(.vscode-high-contrast-light) img[src$=\#gh-light-mode-only],
+.vscode-high-contrast-light img[src$=\#gh-dark-mode-only] {
+	display: none;
+}
+
+</style>
+            
+        <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/Microsoft/vscode/extensions/markdown-language-features/media/markdown.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/Microsoft/vscode/extensions/markdown-language-features/media/highlight.css">
+<style>
+            body {
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe WPC', 'Segoe UI', system-ui, 'Ubuntu', 'Droid Sans', sans-serif;
+                font-size: 14px;
+                line-height: 1.6;
+            }
+        </style>
+        <style>
+.task-list-item {
+    list-style-type: none;
+}
+
+.task-list-item-checkbox {
+    margin-left: -20px;
+    vertical-align: middle;
+    pointer-events: none;
+}
+</style>
+<style>
+:root {
+  --color-note: #0969da;
+  --color-tip: #1a7f37;
+  --color-warning: #9a6700;
+  --color-severe: #bc4c00;
+  --color-caution: #d1242f;
+  --color-important: #8250df;
+}
+
+</style>
+<style>
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-note: #2f81f7;
+    --color-tip: #3fb950;
+    --color-warning: #d29922;
+    --color-severe: #db6d28;
+    --color-caution: #f85149;
+    --color-important: #a371f7;
+  }
+}
+
+</style>
+<style>
+.markdown-alert {
+  padding: 0.5rem 1rem;
+  margin-bottom: 16px;
+  color: inherit;
+  border-left: .25em solid #888;
+}
+
+.markdown-alert>:first-child {
+  margin-top: 0
+}
+
+.markdown-alert>:last-child {
+  margin-bottom: 0
+}
+
+.markdown-alert .markdown-alert-title {
+  display: flex;
+  font-weight: 500;
+  align-items: center;
+  line-height: 1
+}
+
+.markdown-alert .markdown-alert-title .octicon {
+  margin-right: 0.5rem;
+  display: inline-block;
+  overflow: visible !important;
+  vertical-align: text-bottom;
+  fill: currentColor;
+}
+
+.markdown-alert.markdown-alert-note {
+  border-left-color: var(--color-note);
+}
+
+.markdown-alert.markdown-alert-note .markdown-alert-title {
+  color: var(--color-note);
+}
+
+.markdown-alert.markdown-alert-important {
+  border-left-color: var(--color-important);
+}
+
+.markdown-alert.markdown-alert-important .markdown-alert-title {
+  color: var(--color-important);
+}
+
+.markdown-alert.markdown-alert-warning {
+  border-left-color: var(--color-warning);
+}
+
+.markdown-alert.markdown-alert-warning .markdown-alert-title {
+  color: var(--color-warning);
+}
+
+.markdown-alert.markdown-alert-tip {
+  border-left-color: var(--color-tip);
+}
+
+.markdown-alert.markdown-alert-tip .markdown-alert-title {
+  color: var(--color-tip);
+}
+
+.markdown-alert.markdown-alert-caution {
+  border-left-color: var(--color-caution);
+}
+
+.markdown-alert.markdown-alert-caution .markdown-alert-title {
+  color: var(--color-caution);
+}
+
+</style>
+        
+        </head>
+        <body class="vscode-body vscode-light">
+            <h1 id="arquitetura-do-sistema-sicar-api">Arquitetura do Sistema SICAR API</h1>
+<h2 id="visão-geral">Visão Geral</h2>
+<p>Sistema full-stack para download automatizado e gerenciamento de dados do SICAR (Sistema Nacional de Cadastro Ambiental Rural).</p>
+<pre><code>┌─────────────────────────────────────────────────────────────────┐
+│                      SICAR API v1.1.0                           │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  ┌──────────────┐      ┌──────────────┐      ┌──────────────┐   │
+│  │   Frontend   │◄────►│   Backend    │◄────►│  PostgreSQL  │   │
+│  │  React + TS  │      │  FastAPI     │      │   Database   │   │
+│  │  Vite + TW   │      │  Python 3.11 │      │              │   │
+│  └──────────────┘      └──────────────┘      └──────────────┘   │
+│         │                      │                      │         │
+│         │                      │                      │         │
+│         │              ┌───────▼──────────┐           │         │
+│         │              │   APScheduler    │           │         │
+│         │              │  (Task Queue)    │           │         │
+│         │              └───────┬──────────┘           │         │
+│         │                      │                      │         │
+│         └──────────────────────┼──────────────────────┘         │
+│                                │                                │
+│                                ▼                                │
+│                        ┌───────────────┐                        │
+│                        │  SICAR Site   │                        │
+│                        │  (External)   │                        │
+│                        └───────────────┘                        │
+└─────────────────────────────────────────────────────────────────┘
+</code></pre>
+<hr>
+<h2 id="camadas-da-aplicação">Camadas da Aplicação</h2>
+<h3 id="1-frontend-react--typescript">1. Frontend (React + TypeScript)</h3>
+<p><strong>Localização</strong>: <code>app/frontend/</code></p>
+<p><strong>Stack</strong>:</p>
+<ul>
+<li>React 18.2.0</li>
+<li>TypeScript 5.2.2</li>
+<li>Vite (build tool)</li>
+<li>TailwindCSS (estilos)</li>
+<li>Lucide React (ícones)</li>
+</ul>
+<p><strong>Componentes Principais</strong>:</p>
+<pre><code>frontend/
+├── src/
+│   ├── components/
+│   │   ├── HealthCheck.tsx       # Status da API
+│   │   ├── ReleaseDates.tsx      # Datas de atualização
+│   │   ├── Downloads.tsx         # Gerenciar downloads
+│   │   ├── DownloadByCAR.tsx     # Download por CAR
+│   │   ├── Statistics.tsx        # Estatísticas gerais
+│   │   ├── Scheduler.tsx         # Gerenciar agendamentos
+│   │   ├── Logs.tsx              # Histórico de execuções
+│   │   └── SettingsPage.tsx      # Configurações
+│   ├── api.ts                    # Cliente HTTP
+│   ├── App.tsx                   # Aplicação principal
+│   └── main.tsx                  # Entry point
+└── package.json
+</code></pre>
+<p><strong>Responsabilidades</strong>:</p>
+<ul>
+<li>Interface visual para o usuário</li>
+<li>Consumo da API REST</li>
+<li>Exibição de dados em tempo real</li>
+<li>Configuração de timezone e preferências</li>
+</ul>
+<hr>
+<h3 id="2-backend-fastapi--python">2. Backend (FastAPI + Python)</h3>
+<p><strong>Localização</strong>: <code>app/</code></p>
+<p><strong>Stack</strong>:</p>
+<ul>
+<li>FastAPI 0.104.1</li>
+<li>Python 3.11+</li>
+<li>SQLAlchemy (ORM)</li>
+<li>APScheduler (agendamento)</li>
+<li>Uvicorn (ASGI server)</li>
+</ul>
+<p><strong>Estrutura</strong>:</p>
+<pre><code>app/
+├── main.py                  # API FastAPI + endpoints
+├── config.py                # Configurações e variáveis ambiente
+├── database.py              # Conexão PostgreSQL
+├── scheduler.py             # Agendador de tarefas
+├── models/
+│   └── __init__.py          # Modelos SQLAlchemy
+├── services/
+│   └── sicar_service.py     # Lógica de negócio SICAR
+├── repositories/
+│   └── data_repository.py   # Acesso ao banco de dados
+└── frontend/                # Frontend React
+</code></pre>
+<p><strong>Camadas</strong>:</p>
+<ol>
+<li>
+<p><strong>API Layer</strong> (<code>main.py</code>)</p>
+<ul>
+<li>Endpoints REST</li>
+<li>Validação de entrada (Pydantic)</li>
+<li>Middleware de timezone</li>
+<li>CORS</li>
+</ul>
+</li>
+<li>
+<p><strong>Service Layer</strong> (<code>services/</code>)</p>
+<ul>
+<li>Lógica de negócio</li>
+<li>Integração com SICAR</li>
+<li>Download de arquivos</li>
+<li>Processamento de dados</li>
+</ul>
+</li>
+<li>
+<p><strong>Repository Layer</strong> (<code>repositories/</code>)</p>
+<ul>
+<li>Acesso ao banco de dados</li>
+<li>Queries SQL</li>
+<li>CRUD operations</li>
+</ul>
+</li>
+<li>
+<p><strong>Scheduler</strong> (<code>scheduler.py</code>)</p>
+<ul>
+<li>Tarefas agendadas</li>
+<li>Execução automática</li>
+<li>Persistência de configurações</li>
+</ul>
+</li>
+</ol>
+<hr>
+<h3 id="3-banco-de-dados-postgresql">3. Banco de Dados (PostgreSQL)</h3>
+<p><strong>Tabelas Principais</strong>:</p>
+<ol>
+<li>
+<p><strong>state_releases</strong></p>
+<ul>
+<li>Datas de atualização por estado</li>
+<li>Última verificação</li>
+<li>Data do último download</li>
+</ul>
+</li>
+<li>
+<p><strong>download_jobs</strong></p>
+<ul>
+<li>Histórico de downloads</li>
+<li>Status (pending, running, completed, failed)</li>
+<li>Informações de arquivo (path, size)</li>
+<li>Erros e retries</li>
+</ul>
+</li>
+<li>
+<p><strong>property_data</strong></p>
+<ul>
+<li>Dados das propriedades rurais</li>
+<li>Geometrias (shapefiles)</li>
+<li>Metadados (área, município, status)</li>
+</ul>
+</li>
+<li>
+<p><strong>scheduled_tasks</strong></p>
+<ul>
+<li>Logs de execuções</li>
+<li>Resultados e erros</li>
+<li>Duração e timestamps</li>
+</ul>
+</li>
+<li>
+<p><strong>job_configurations</strong></p>
+<ul>
+<li>Configurações dos jobs</li>
+<li>Horários e triggers</li>
+<li>Estado ativo/pausado</li>
+</ul>
+</li>
+<li>
+<p><strong>app_settings</strong></p>
+<ul>
+<li>Configurações da aplicação</li>
+<li>Timezone, preferências</li>
+<li>Valores JSON flexíveis</li>
+</ul>
+</li>
+</ol>
+<hr>
+<h2 id="fluxo-de-dados">Fluxo de Dados</h2>
+<h3 id="1-download-automatizado">1. Download Automatizado</h3>
+<pre><code>┌─────────────────────────────────────────────────────────────┐
+│ 1. APScheduler trigger (cron: diariamente às 02:00)         │
+└────────────┬────────────────────────────────────────────────┘
+             │
+             ▼
+┌─────────────────────────────────────────────────────────────┐
+│ 2. TaskScheduler._daily_collection_job()                    │
+│    - Cria registro em scheduled_tasks                       │
+│    - Chama SicarService.execute_daily_collection()          │
+└────────────┬────────────────────────────────────────────────┘
+             │
+             ▼
+┌─────────────────────────────────────────────────────────────┐
+│ 3. SicarService processa cada estado configurado            │
+│    - Acessa SICAR website                                   │
+│    - Resolve CAPTCHA (OCR)                                  │
+│    - Baixa ZIP files                                        │
+│    - Salva em downloads/{STATE}/{POLYGON}/                  │
+└────────────┬────────────────────────────────────────────────┘
+             │
+             ▼
+┌─────────────────────────────────────────────────────────────┐
+│ 4. DataRepository salva metadados                           │
+│    - Cria download_jobs                                     │
+│    - Extrai shapefiles                                      │
+│    - Popula property_data                                   │
+│    - Atualiza scheduled_tasks com resultado                 │
+└─────────────────────────────────────────────────────────────┘
+</code></pre>
+<h3 id="2-download-manual-frontend">2. Download Manual (Frontend)</h3>
+<pre><code>User → Frontend → POST /downloads/state
+                      │
+                      ▼
+                  FastAPI endpoint
+                      │
+                      ▼
+              BackgroundTasks.add_task()
+                      │
+                      ▼
+              SicarService.download_state()
+                      │
+                      ▼
+              Download executado em background
+                      │
+                      ▼
+              Database atualizado (download_jobs)
+                      │
+                      ▼
+              Frontend consulta status periodicamente
+</code></pre>
+<hr>
+<h2 id="componentes-especiais">Componentes Especiais</h2>
+<h3 id="1-timezonemiddleware">1. TimezoneMiddleware</h3>
+<p><strong>Localização</strong>: <code>app/main.py</code></p>
+<p><strong>Função</strong>: Adiciona sufixo 'Z' a todos os timestamps UTC nos responses JSON</p>
+<p><strong>Regex</strong>: <code>r'&quot;(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+)&quot;'</code> → <code>r'&quot;\1Z&quot;'</code></p>
+<p><strong>Motivo</strong>: JavaScript <code>Date()</code> interpreta timestamps sem 'Z' como timezone local</p>
+<h3 id="2-apscheduler-integration">2. APScheduler Integration</h3>
+<p><strong>Localização</strong>: <code>app/scheduler.py</code></p>
+<p><strong>Features</strong>:</p>
+<ul>
+<li>Configuração via cron expressions (6 partes: second minute hour day month day_of_week)</li>
+<li>Persistência de estado no PostgreSQL</li>
+<li>Pause/resume de jobs</li>
+<li>Reagendamento dinâmico</li>
+<li>Event listeners (success/error)</li>
+</ul>
+<p><strong>Jobs Padrão</strong>:</p>
+<ol>
+<li><code>daily_sicar_collection</code> - Download diário às 02:00</li>
+<li><code>update_release_dates</code> - Atualização de releases às 01:00</li>
+</ol>
+<h3 id="3-sicar-integration">3. SICAR Integration</h3>
+<p><strong>Localização</strong>: <code>SICAR/</code> (biblioteca externa)</p>
+<p><strong>Funcionalidades</strong>:</p>
+<ul>
+<li>Web scraping do site SICAR</li>
+<li>Resolução de CAPTCHA (OCR com Tesseract/PaddleOCR)</li>
+<li>Download de shapefiles por estado/polígono</li>
+<li>Parsing de dados geoespaciais</li>
+</ul>
+<hr>
+<h2 id="tecnologias-e-dependências">Tecnologias e Dependências</h2>
+<h3 id="backend">Backend</h3>
+<pre><code class="language-python">fastapi==<span class="hljs-number">0.104</span><span class="hljs-number">.1</span>          <span class="hljs-comment"># Framework web</span>
+uvicorn==<span class="hljs-number">0.24</span><span class="hljs-number">.0</span>           <span class="hljs-comment"># ASGI server</span>
+sqlalchemy==<span class="hljs-number">2.0</span><span class="hljs-number">.23</span>        <span class="hljs-comment"># ORM</span>
+psycopg2-binary==<span class="hljs-number">2.9</span><span class="hljs-number">.9</span>    <span class="hljs-comment"># PostgreSQL driver</span>
+apscheduler==<span class="hljs-number">3.10</span><span class="hljs-number">.4</span>       <span class="hljs-comment"># Task scheduling</span>
+pydantic==<span class="hljs-number">2.5</span><span class="hljs-number">.0</span>           <span class="hljs-comment"># Validação de dados</span>
+</code></pre>
+<h3 id="frontend">Frontend</h3>
+<pre><code class="language-json"><span class="hljs-punctuation">{</span>
+  <span class="hljs-attr">&quot;react&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;^18.2.0&quot;</span><span class="hljs-punctuation">,</span>
+  <span class="hljs-attr">&quot;typescript&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;^5.2.2&quot;</span><span class="hljs-punctuation">,</span>
+  <span class="hljs-attr">&quot;vite&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;^5.0.8&quot;</span><span class="hljs-punctuation">,</span>
+  <span class="hljs-attr">&quot;tailwindcss&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;^3.4.1&quot;</span><span class="hljs-punctuation">,</span>
+  <span class="hljs-attr">&quot;lucide-react&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;^0.263.1&quot;</span><span class="hljs-punctuation">,</span>
+  <span class="hljs-attr">&quot;axios&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;^1.6.5&quot;</span>
+<span class="hljs-punctuation">}</span>
+</code></pre>
+<h3 id="database">Database</h3>
+<ul>
+<li>PostgreSQL 14+</li>
+<li>PostGIS (opcional, para queries geoespaciais)</li>
+</ul>
+<hr>
+<h2 id="deploy-e-execução">Deploy e Execução</h2>
+<h3 id="desenvolvimento">Desenvolvimento</h3>
+<pre><code class="language-bash"><span class="hljs-comment"># Backend</span>
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+
+<span class="hljs-comment"># Frontend</span>
+<span class="hljs-built_in">cd</span> app/frontend
+npm run dev
+</code></pre>
+<h3 id="produção-docker">Produção (Docker)</h3>
+<pre><code class="language-bash">docker-compose up -d
+</code></pre>
+<p><strong>Serviços</strong>:</p>
+<ul>
+<li>Backend: <a href="http://localhost:8000">http://localhost:8000</a></li>
+<li>Frontend: <a href="http://localhost:5173">http://localhost:5173</a></li>
+<li>PostgreSQL: localhost:5432</li>
+</ul>
+<hr>
+<h2 id="segurança-e-boas-práticas">Segurança e Boas Práticas</h2>
+<ol>
+<li><strong>Environment Variables</strong>: Credenciais em <code>.env</code></li>
+<li><strong>CORS</strong>: Configurado para origens permitidas</li>
+<li><strong>SQL Injection</strong>: Proteção via SQLAlchemy ORM</li>
+<li><strong>Background Tasks</strong>: Execução assíncrona de operações pesadas</li>
+<li><strong>Error Handling</strong>: Try-catch em todas as operações críticas</li>
+<li><strong>Logging</strong>: Logs estruturados com níveis (INFO, ERROR, WARNING)</li>
+<li><strong>Retry Logic</strong>: Downloads falhos são marcados para retry</li>
+<li><strong>Transaction Management</strong>: Commits explícitos em operações de banco</li>
+</ol>
+<hr>
+<h2 id="escalabilidade">Escalabilidade</h2>
+<h3 id="limitações-atuais">Limitações Atuais</h3>
+<ul>
+<li>Single-threaded APScheduler</li>
+<li>Downloads sequenciais por estado</li>
+<li>In-memory task queue</li>
+</ul>
+<h3 id="melhorias-futuras">Melhorias Futuras</h3>
+<ul>
+<li>Celery para task queue distribuída</li>
+<li>Redis para cache</li>
+<li>MinIO para object storage</li>
+<li>Kubernetes para orquestração</li>
+<li>Load balancer para múltiplas instâncias</li>
+</ul>
+<hr>
+<h2 id="monitoramento">Monitoramento</h2>
+<h3 id="endpoints-de-health-check">Endpoints de Health Check</h3>
+<ul>
+<li><code>GET /health</code> - Status geral</li>
+<li><code>GET /scheduler/jobs</code> - Jobs ativos</li>
+<li><code>GET /scheduler/tasks</code> - Logs de execução</li>
+<li><code>GET /downloads/stats</code> - Estatísticas</li>
+</ul>
+<h3 id="logs">Logs</h3>
+<ul>
+<li>Arquivo: <code>logs/sicar_api.log</code> (se configurado)</li>
+<li>Formato: <code>%(asctime)s - %(name)s - %(levelname)s - %(message)s</code></li>
+<li>Níveis: INFO, WARNING, ERROR</li>
+</ul>
+<hr>
+<p><strong>Versão</strong>: 1.1.0<br>
+<strong>Data</strong>: 15/12/2025</p>
+
+            
+            
+        </body>
+        </html>

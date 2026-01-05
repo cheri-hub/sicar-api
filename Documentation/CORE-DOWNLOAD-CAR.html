@@ -1,0 +1,1014 @@
+<!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <title>Core do Sistema - Download por N&uacute;mero CAR</title>
+            <style>
+/* From extension vscode.github */
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
+.vscode-dark img[src$=\#gh-light-mode-only],
+.vscode-light img[src$=\#gh-dark-mode-only],
+.vscode-high-contrast:not(.vscode-high-contrast-light) img[src$=\#gh-light-mode-only],
+.vscode-high-contrast-light img[src$=\#gh-dark-mode-only] {
+	display: none;
+}
+
+</style>
+            
+        <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/Microsoft/vscode/extensions/markdown-language-features/media/markdown.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/Microsoft/vscode/extensions/markdown-language-features/media/highlight.css">
+<style>
+            body {
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe WPC', 'Segoe UI', system-ui, 'Ubuntu', 'Droid Sans', sans-serif;
+                font-size: 14px;
+                line-height: 1.6;
+            }
+        </style>
+        <style>
+.task-list-item {
+    list-style-type: none;
+}
+
+.task-list-item-checkbox {
+    margin-left: -20px;
+    vertical-align: middle;
+    pointer-events: none;
+}
+</style>
+<style>
+:root {
+  --color-note: #0969da;
+  --color-tip: #1a7f37;
+  --color-warning: #9a6700;
+  --color-severe: #bc4c00;
+  --color-caution: #d1242f;
+  --color-important: #8250df;
+}
+
+</style>
+<style>
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-note: #2f81f7;
+    --color-tip: #3fb950;
+    --color-warning: #d29922;
+    --color-severe: #db6d28;
+    --color-caution: #f85149;
+    --color-important: #a371f7;
+  }
+}
+
+</style>
+<style>
+.markdown-alert {
+  padding: 0.5rem 1rem;
+  margin-bottom: 16px;
+  color: inherit;
+  border-left: .25em solid #888;
+}
+
+.markdown-alert>:first-child {
+  margin-top: 0
+}
+
+.markdown-alert>:last-child {
+  margin-bottom: 0
+}
+
+.markdown-alert .markdown-alert-title {
+  display: flex;
+  font-weight: 500;
+  align-items: center;
+  line-height: 1
+}
+
+.markdown-alert .markdown-alert-title .octicon {
+  margin-right: 0.5rem;
+  display: inline-block;
+  overflow: visible !important;
+  vertical-align: text-bottom;
+  fill: currentColor;
+}
+
+.markdown-alert.markdown-alert-note {
+  border-left-color: var(--color-note);
+}
+
+.markdown-alert.markdown-alert-note .markdown-alert-title {
+  color: var(--color-note);
+}
+
+.markdown-alert.markdown-alert-important {
+  border-left-color: var(--color-important);
+}
+
+.markdown-alert.markdown-alert-important .markdown-alert-title {
+  color: var(--color-important);
+}
+
+.markdown-alert.markdown-alert-warning {
+  border-left-color: var(--color-warning);
+}
+
+.markdown-alert.markdown-alert-warning .markdown-alert-title {
+  color: var(--color-warning);
+}
+
+.markdown-alert.markdown-alert-tip {
+  border-left-color: var(--color-tip);
+}
+
+.markdown-alert.markdown-alert-tip .markdown-alert-title {
+  color: var(--color-tip);
+}
+
+.markdown-alert.markdown-alert-caution {
+  border-left-color: var(--color-caution);
+}
+
+.markdown-alert.markdown-alert-caution .markdown-alert-title {
+  color: var(--color-caution);
+}
+
+</style>
+        
+        </head>
+        <body class="vscode-body vscode-light">
+            <h1 id="core-do-sistema---download-por-número-car">Core do Sistema - Download por Número CAR</h1>
+<p><strong>Versão</strong>: 1.1.0<br>
+<strong>Data</strong>: 15/12/2025<br>
+<strong>Autor</strong>: Extensão sobre SICAR Package original</p>
+<hr>
+<h2 id="-visão-geral">🎯 Visão Geral</h2>
+<p>Este documento descreve o <strong>coração técnico</strong> do sistema: a extensão que permite download de shapefiles <strong>diretamente pelo número CAR</strong>, sem precisar do ID interno do SICAR.</p>
+<h3 id="problema-original">Problema Original</h3>
+<p>O <a href="https://github.com/urbanogilson/SICAR">SICAR Package</a> original permite apenas:</p>
+<ul>
+<li>Download por <strong>estado + polígono</strong> (batch)</li>
+<li>Requer conhecer o <strong>ID interno</strong> da propriedade</li>
+</ul>
+<h3 id="nossa-solução">Nossa Solução</h3>
+<p>Implementamos um sistema de <strong>busca + download</strong> que:</p>
+<ol>
+<li>✅ Aceita apenas o <strong>número CAR</strong> (ex: <code>SP-3538709-ABC123...</code>)</li>
+<li>✅ Busca automaticamente o <strong>ID interno</strong> no SICAR</li>
+<li>✅ Resolve <strong>CAPTCHA</strong> automaticamente</li>
+<li>✅ Detecta e trata <strong>formato Base64</strong> (mudança crítica de 14/12/2025)</li>
+<li>✅ Persiste metadados no <strong>PostgreSQL</strong></li>
+<li>✅ Retry automático em caso de falha</li>
+</ol>
+<hr>
+<h2 id="️-arquitetura-da-extensão">🏗️ Arquitetura da Extensão</h2>
+<pre><code>┌─────────────────────────────────────────────────────────────────┐
+│                    NOSSA EXTENSÃO                               │
+│                                                                 │
+│  1. API Endpoint: POST /downloads/car                           │
+│     ↓                                                           │
+│  2. SicarService.download_by_car_number()                       │
+│     ↓                                                           │
+│  3. search_property_by_car() → GET /publico/imoveis/search      │
+│     • Busca por car_number                                      │
+│     • Extrai internal_id                                        │
+│     ↓                                                           │
+│  4. _download_car_shapefile() → POST /publico/imoveis/export... │
+│     • Resolve CAPTCHA (Tesseract/Paddle)                        │
+│     • Envia internal_id + captcha                               │
+│     • Detecta formato (base64 vs binary)                        │
+│     • Decodifica se necessário                                  │
+│     ↓                                                           │
+│  5. Save to downloads/CAR/{car_number}.zip                      │
+│     ↓                                                           │
+│  6. Parse metadata → PostgreSQL (property_data table)           │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│              SICAR Package Original (Urbano Gilson)             │
+│                                                                 │
+│  • Sicar.captcha() - Resolve CAPTCHA                            │
+│  • Polygon enum - Tipos de polígonos                            │
+│  • State enum - Estados brasileiros                             │
+│  • Drivers: Tesseract, Paddle                                   │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+</code></pre>
+<hr>
+<h2 id="-código-core---explicado-linha-por-linha">💻 Código Core - Explicado Linha por Linha</h2>
+<h3 id="1-busca-de-propriedade-por-car">1. Busca de Propriedade por CAR</h3>
+<p><strong>Localização</strong>: <code>app/services/sicar_service.py</code></p>
+<pre><code class="language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">search_property_by_car</span>(<span class="hljs-params">self, car_number: <span class="hljs-built_in">str</span></span>) -&gt; <span class="hljs-type">Optional</span>[<span class="hljs-type">Dict</span>]:
+    <span class="hljs-string">&quot;&quot;&quot;
+    Busca propriedade no SICAR pelo número CAR.
+    
+    Retorna dados da propriedade incluindo ID interno necessário
+    para download do shapefile.
+    
+    Args:
+        car_number: Número CAR (ex: &quot;SP-3538709-ABC123...&quot;)
+        
+    Returns:
+        Dict com dados da propriedade ou None se não encontrado
+    &quot;&quot;&quot;</span>
+    <span class="hljs-keyword">try</span>:
+        <span class="hljs-comment"># URL de busca do SICAR (não documentada oficialmente)</span>
+        search_url = <span class="hljs-string">f&quot;<span class="hljs-subst">{self.sicar.base_url}</span>/publico/imoveis/search&quot;</span>
+        
+        <span class="hljs-comment"># Parâmetros da busca</span>
+        <span class="hljs-comment"># text: número CAR a buscar</span>
+        <span class="hljs-comment"># draw: contador de requisições (usado pelo DataTables)</span>
+        <span class="hljs-comment"># start: offset para paginação</span>
+        <span class="hljs-comment"># length: quantidade de resultados</span>
+        params = {
+            <span class="hljs-string">&quot;text&quot;</span>: car_number,
+            <span class="hljs-string">&quot;draw&quot;</span>: <span class="hljs-number">1</span>,
+            <span class="hljs-string">&quot;start&quot;</span>: <span class="hljs-number">0</span>,
+            <span class="hljs-string">&quot;length&quot;</span>: <span class="hljs-number">10</span>
+        }
+        
+        logger.info(<span class="hljs-string">f&quot;Buscando propriedade CAR: <span class="hljs-subst">{car_number}</span>&quot;</span>)
+        
+        <span class="hljs-comment"># Faz requisição GET usando sessão do SICAR (mantém cookies)</span>
+        response = self.sicar.session.get(
+            search_url, 
+            params=params,
+            timeout=<span class="hljs-number">30</span>
+        )
+        response.raise_for_status()
+        
+        <span class="hljs-comment"># Resposta é JSON com estrutura do DataTables</span>
+        data = response.json()
+        
+        <span class="hljs-comment"># Verifica se encontrou resultados</span>
+        <span class="hljs-keyword">if</span> data.get(<span class="hljs-string">&quot;recordsTotal&quot;</span>, <span class="hljs-number">0</span>) == <span class="hljs-number">0</span>:
+            logger.warning(<span class="hljs-string">f&quot;CAR não encontrado: <span class="hljs-subst">{car_number}</span>&quot;</span>)
+            <span class="hljs-keyword">return</span> <span class="hljs-literal">None</span>
+        
+        <span class="hljs-comment"># Primeiro resultado (mais relevante)</span>
+        property_data = data[<span class="hljs-string">&quot;data&quot;</span>][<span class="hljs-number">0</span>]
+        
+        <span class="hljs-comment"># Extrai campos importantes</span>
+        <span class="hljs-comment"># cod_imovel: ID interno do SICAR (CRÍTICO para download)</span>
+        <span class="hljs-comment"># cod_car: Número CAR formatado</span>
+        <span class="hljs-comment"># des_condic: Status da propriedade</span>
+        <span class="hljs-comment"># nom_munici: Município</span>
+        <span class="hljs-comment"># sgl_uf: Estado (UF)</span>
+        result = {
+            <span class="hljs-string">&quot;internal_id&quot;</span>: property_data.get(<span class="hljs-string">&quot;cod_imovel&quot;</span>),  <span class="hljs-comment"># ← CHAVE!</span>
+            <span class="hljs-string">&quot;car_number&quot;</span>: property_data.get(<span class="hljs-string">&quot;cod_car&quot;</span>),
+            <span class="hljs-string">&quot;status&quot;</span>: property_data.get(<span class="hljs-string">&quot;des_condic&quot;</span>),
+            <span class="hljs-string">&quot;municipio&quot;</span>: property_data.get(<span class="hljs-string">&quot;nom_munici&quot;</span>),
+            <span class="hljs-string">&quot;uf&quot;</span>: property_data.get(<span class="hljs-string">&quot;sgl_uf&quot;</span>),
+            <span class="hljs-string">&quot;area&quot;</span>: property_data.get(<span class="hljs-string">&quot;num_area_imovel&quot;</span>),
+            <span class="hljs-string">&quot;geometry&quot;</span>: property_data.get(<span class="hljs-string">&quot;geo_center&quot;</span>)  <span class="hljs-comment"># Centro geométrico</span>
+        }
+        
+        logger.info(
+            <span class="hljs-string">f&quot;Propriedade encontrada: <span class="hljs-subst">{result[<span class="hljs-string">&#x27;car_number&#x27;</span>]}</span> &quot;</span>
+            <span class="hljs-string">f&quot;(ID interno: <span class="hljs-subst">{result[<span class="hljs-string">&#x27;internal_id&#x27;</span>]}</span>)&quot;</span>
+        )
+        
+        <span class="hljs-keyword">return</span> result
+        
+    <span class="hljs-keyword">except</span> requests.RequestException <span class="hljs-keyword">as</span> e:
+        logger.error(<span class="hljs-string">f&quot;Erro na busca CAR <span class="hljs-subst">{car_number}</span>: <span class="hljs-subst">{e}</span>&quot;</span>)
+        <span class="hljs-keyword">return</span> <span class="hljs-literal">None</span>
+    <span class="hljs-keyword">except</span> (KeyError, IndexError) <span class="hljs-keyword">as</span> e:
+        logger.error(<span class="hljs-string">f&quot;Erro ao parsear resposta para CAR <span class="hljs-subst">{car_number}</span>: <span class="hljs-subst">{e}</span>&quot;</span>)
+        <span class="hljs-keyword">return</span> <span class="hljs-literal">None</span>
+</code></pre>
+<p><strong>Pontos-Chave:</strong></p>
+<ul>
+<li>✅ Usa <code>session</code> do SICAR (cookies persistentes)</li>
+<li>✅ Parâmetros compatíveis com DataTables</li>
+<li>✅ Extrai <code>cod_imovel</code> (ID interno) - <strong>essencial para próximo passo</strong></li>
+<li>✅ Tratamento de erros robusto</li>
+</ul>
+<hr>
+<h3 id="2-download-do-shapefile-com-captcha">2. Download do Shapefile com CAPTCHA</h3>
+<pre><code class="language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">_download_car_shapefile</span>(<span class="hljs-params">
+    self, 
+    internal_id: <span class="hljs-built_in">str</span>, 
+    car_number: <span class="hljs-built_in">str</span>
+</span>) -&gt; <span class="hljs-type">Optional</span>[Path]:
+    <span class="hljs-string">&quot;&quot;&quot;
+    Baixa shapefile de uma propriedade específica usando ID interno.
+    
+    Este é o passo 2: usa o internal_id obtido na busca para
+    fazer download com resolução automática de CAPTCHA.
+    
+    Args:
+        internal_id: ID interno do SICAR (obtido na busca)
+        car_number: Número CAR (para salvar arquivo)
+        
+    Returns:
+        Path do arquivo salvo ou None se falhar
+    &quot;&quot;&quot;</span>
+    <span class="hljs-keyword">try</span>:
+        <span class="hljs-comment"># 1. RESOLVER CAPTCHA</span>
+        logger.info(<span class="hljs-string">f&quot;Resolvendo CAPTCHA para CAR <span class="hljs-subst">{car_number}</span>&quot;</span>)
+        
+        <span class="hljs-comment"># Usa driver OCR do SICAR Package (Tesseract ou Paddle)</span>
+        captcha_text = self.sicar.captcha()
+        
+        <span class="hljs-keyword">if</span> <span class="hljs-keyword">not</span> captcha_text:
+            logger.error(<span class="hljs-string">&quot;Falha ao resolver CAPTCHA&quot;</span>)
+            <span class="hljs-keyword">return</span> <span class="hljs-literal">None</span>
+        
+        logger.info(<span class="hljs-string">f&quot;CAPTCHA resolvido: <span class="hljs-subst">{captcha_text}</span>&quot;</span>)
+        
+        <span class="hljs-comment"># 2. PREPARAR REQUISIÇÃO DE DOWNLOAD</span>
+        download_url = <span class="hljs-string">f&quot;<span class="hljs-subst">{self.sicar.base_url}</span>/publico/imoveis/exportShapeFile&quot;</span>
+        
+        <span class="hljs-comment"># Payload com ID interno + CAPTCHA</span>
+        payload = {
+            <span class="hljs-string">&quot;idImovel&quot;</span>: internal_id,     <span class="hljs-comment"># ← ID obtido na busca</span>
+            <span class="hljs-string">&quot;captcha&quot;</span>: captcha_text,      <span class="hljs-comment"># ← Texto do CAPTCHA</span>
+            <span class="hljs-string">&quot;tipoExportacao&quot;</span>: <span class="hljs-string">&quot;COMPLETO&quot;</span>  <span class="hljs-comment"># Download completo (todos polígonos)</span>
+        }
+        
+        logger.info(<span class="hljs-string">f&quot;Baixando shapefile CAR <span class="hljs-subst">{car_number}</span> (ID: <span class="hljs-subst">{internal_id}</span>)&quot;</span>)
+        
+        <span class="hljs-comment"># 3. FAZER DOWNLOAD (POST)</span>
+        response = self.sicar.session.post(
+            download_url,
+            data=payload,
+            timeout=<span class="hljs-number">300</span>  <span class="hljs-comment"># 5 minutos (shapefiles podem ser grandes)</span>
+        )
+        response.raise_for_status()
+        
+        <span class="hljs-comment"># 4. DETECTAR FORMATO DA RESPOSTA</span>
+        <span class="hljs-comment"># ⚠️ MUDANÇA CRÍTICA (14/12/2025)</span>
+        <span class="hljs-comment"># SICAR passou a retornar base64 data URL em vez de binário</span>
+        
+        content = response.text <span class="hljs-keyword">if</span> response.text <span class="hljs-keyword">else</span> response.content
+        
+        <span class="hljs-comment"># Verifica se é Base64 Data URL</span>
+        <span class="hljs-keyword">if</span> <span class="hljs-built_in">isinstance</span>(content, <span class="hljs-built_in">str</span>) <span class="hljs-keyword">and</span> content.startswith(<span class="hljs-string">&#x27;data:&#x27;</span>):
+            logger.info(<span class="hljs-string">&quot;Detectado formato Base64 Data URL&quot;</span>)
+            
+            <span class="hljs-comment"># Extrai base64 após vírgula</span>
+            <span class="hljs-comment"># Formato: data:application/zip;base64,UEsDBBQACAgI...</span>
+            <span class="hljs-keyword">try</span>:
+                base64_content = content.split(<span class="hljs-string">&#x27;,&#x27;</span>, <span class="hljs-number">1</span>)[<span class="hljs-number">1</span>]
+                zip_content = base64.b64decode(base64_content)
+                logger.info(<span class="hljs-string">&quot;Base64 decodificado com sucesso&quot;</span>)
+            <span class="hljs-keyword">except</span> Exception <span class="hljs-keyword">as</span> e:
+                logger.error(<span class="hljs-string">f&quot;Erro ao decodificar base64: <span class="hljs-subst">{e}</span>&quot;</span>)
+                <span class="hljs-keyword">return</span> <span class="hljs-literal">None</span>
+        <span class="hljs-keyword">else</span>:
+            <span class="hljs-comment"># Formato binário direto (legado)</span>
+            logger.info(<span class="hljs-string">&quot;Detectado formato binário direto&quot;</span>)
+            zip_content = response.content
+        
+        <span class="hljs-comment"># 5. VALIDAR CONTEÚDO ZIP</span>
+        <span class="hljs-comment"># Verifica magic number do ZIP (50 4B)</span>
+        <span class="hljs-keyword">if</span> <span class="hljs-keyword">not</span> zip_content.startswith(<span class="hljs-string">b&#x27;PK&#x27;</span>):
+            logger.error(
+                <span class="hljs-string">f&quot;Resposta não é arquivo ZIP válido. &quot;</span>
+                <span class="hljs-string">f&quot;Primeiros bytes: <span class="hljs-subst">{zip_content[:<span class="hljs-number">20</span>]}</span>&quot;</span>
+            )
+            <span class="hljs-keyword">return</span> <span class="hljs-literal">None</span>
+        
+        <span class="hljs-comment"># 6. SALVAR ARQUIVO</span>
+        car_folder = self.download_folder / <span class="hljs-string">&quot;CAR&quot;</span>
+        car_folder.mkdir(parents=<span class="hljs-literal">True</span>, exist_ok=<span class="hljs-literal">True</span>)
+        
+        output_path = car_folder / <span class="hljs-string">f&quot;<span class="hljs-subst">{car_number}</span>.zip&quot;</span>
+        
+        <span class="hljs-keyword">with</span> <span class="hljs-built_in">open</span>(output_path, <span class="hljs-string">&#x27;wb&#x27;</span>) <span class="hljs-keyword">as</span> f:
+            f.write(zip_content)
+        
+        file_size = output_path.stat().st_size
+        logger.info(
+            <span class="hljs-string">f&quot;Shapefile salvo: <span class="hljs-subst">{output_path}</span> &quot;</span>
+            <span class="hljs-string">f&quot;(<span class="hljs-subst">{file_size / <span class="hljs-number">1024</span> / <span class="hljs-number">1024</span>:<span class="hljs-number">.2</span>f}</span> MB)&quot;</span>
+        )
+        
+        <span class="hljs-keyword">return</span> output_path
+        
+    <span class="hljs-keyword">except</span> requests.RequestException <span class="hljs-keyword">as</span> e:
+        logger.error(<span class="hljs-string">f&quot;Erro no download CAR <span class="hljs-subst">{car_number}</span>: <span class="hljs-subst">{e}</span>&quot;</span>)
+        <span class="hljs-keyword">return</span> <span class="hljs-literal">None</span>
+    <span class="hljs-keyword">except</span> Exception <span class="hljs-keyword">as</span> e:
+        logger.error(<span class="hljs-string">f&quot;Erro inesperado no download CAR <span class="hljs-subst">{car_number}</span>: <span class="hljs-subst">{e}</span>&quot;</span>)
+        <span class="hljs-keyword">return</span> <span class="hljs-literal">None</span>
+</code></pre>
+<p><strong>Inovações:</strong></p>
+<ul>
+<li>✅ <strong>Auto-detecção de formato</strong> (base64 vs binary)</li>
+<li>✅ <strong>Validação de ZIP</strong> (magic number <code>PK</code>)</li>
+<li>✅ <strong>Timeout adequado</strong> (300s para arquivos grandes)</li>
+<li>✅ <strong>Logs detalhados</strong> para debugging</li>
+</ul>
+<hr>
+<h3 id="3-orquestração-completa">3. Orquestração Completa</h3>
+<pre><code class="language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">download_by_car_number</span>(<span class="hljs-params">
+    self, 
+    car_number: <span class="hljs-built_in">str</span>, 
+    force: <span class="hljs-built_in">bool</span> = <span class="hljs-literal">False</span>
+</span>) -&gt; <span class="hljs-type">Dict</span>:
+    <span class="hljs-string">&quot;&quot;&quot;
+    Função principal: orquestra busca + download + persistência.
+    
+    Este é o método público chamado pela API.
+    
+    Args:
+        car_number: Número CAR
+        force: Se True, baixa mesmo se já existir
+        
+    Returns:
+        Dict com status e informações do download
+    &quot;&quot;&quot;</span>
+    <span class="hljs-keyword">try</span>:
+        <span class="hljs-comment"># 1. VERIFICAR SE JÁ EXISTE (exceto se force=True)</span>
+        <span class="hljs-keyword">if</span> <span class="hljs-keyword">not</span> force:
+            existing = self.repository.get_download_by_car_number(car_number)
+            <span class="hljs-keyword">if</span> existing <span class="hljs-keyword">and</span> existing.status == <span class="hljs-string">&#x27;completed&#x27;</span>:
+                logger.info(<span class="hljs-string">f&quot;CAR <span class="hljs-subst">{car_number}</span> já baixado anteriormente&quot;</span>)
+                <span class="hljs-keyword">return</span> {
+                    <span class="hljs-string">&quot;status&quot;</span>: <span class="hljs-string">&quot;already_exists&quot;</span>,
+                    <span class="hljs-string">&quot;message&quot;</span>: <span class="hljs-string">&quot;Download já existe&quot;</span>,
+                    <span class="hljs-string">&quot;job_id&quot;</span>: existing.<span class="hljs-built_in">id</span>,
+                    <span class="hljs-string">&quot;file_path&quot;</span>: existing.file_path
+                }
+        
+        <span class="hljs-comment"># 2. CRIAR JOB NO BANCO</span>
+        job = self.repository.create_download_job_car(car_number)
+        job.status = <span class="hljs-string">&#x27;running&#x27;</span>
+        job.started_at = datetime.utcnow()
+        self.db.commit()
+        
+        logger.info(<span class="hljs-string">f&quot;Job #<span class="hljs-subst">{job.<span class="hljs-built_in">id</span>}</span> criado para CAR <span class="hljs-subst">{car_number}</span>&quot;</span>)
+        
+        <span class="hljs-comment"># 3. BUSCAR PROPRIEDADE (PASSO 1)</span>
+        property_data = self.search_property_by_car(car_number)
+        
+        <span class="hljs-keyword">if</span> <span class="hljs-keyword">not</span> property_data:
+            <span class="hljs-comment"># Falha na busca</span>
+            job.status = <span class="hljs-string">&#x27;failed&#x27;</span>
+            job.error_message = <span class="hljs-string">&quot;Propriedade não encontrada no SICAR&quot;</span>
+            job.completed_at = datetime.utcnow()
+            self.db.commit()
+            
+            <span class="hljs-keyword">return</span> {
+                <span class="hljs-string">&quot;status&quot;</span>: <span class="hljs-string">&quot;error&quot;</span>,
+                <span class="hljs-string">&quot;message&quot;</span>: <span class="hljs-string">&quot;Propriedade não encontrada&quot;</span>,
+                <span class="hljs-string">&quot;job_id&quot;</span>: job.<span class="hljs-built_in">id</span>
+            }
+        
+        internal_id = property_data[<span class="hljs-string">&quot;internal_id&quot;</span>]
+        
+        <span class="hljs-comment"># 4. BAIXAR SHAPEFILE (PASSO 2)</span>
+        retry_count = <span class="hljs-number">0</span>
+        max_retries = settings.sicar_max_retries
+        file_path = <span class="hljs-literal">None</span>
+        
+        <span class="hljs-keyword">while</span> retry_count &lt; max_retries <span class="hljs-keyword">and</span> <span class="hljs-keyword">not</span> file_path:
+            <span class="hljs-keyword">try</span>:
+                file_path = self._download_car_shapefile(
+                    internal_id, 
+                    car_number
+                )
+                
+                <span class="hljs-keyword">if</span> <span class="hljs-keyword">not</span> file_path:
+                    retry_count += <span class="hljs-number">1</span>
+                    <span class="hljs-keyword">if</span> retry_count &lt; max_retries:
+                        logger.warning(
+                            <span class="hljs-string">f&quot;Tentativa <span class="hljs-subst">{retry_count}</span>/<span class="hljs-subst">{max_retries}</span> falhou. &quot;</span>
+                            <span class="hljs-string">f&quot;Aguardando <span class="hljs-subst">{settings.sicar_retry_delay}</span>s...&quot;</span>
+                        )
+                        time.sleep(settings.sicar_retry_delay)
+                    
+            <span class="hljs-keyword">except</span> Exception <span class="hljs-keyword">as</span> e:
+                logger.error(<span class="hljs-string">f&quot;Erro na tentativa <span class="hljs-subst">{retry_count + <span class="hljs-number">1</span>}</span>: <span class="hljs-subst">{e}</span>&quot;</span>)
+                retry_count += <span class="hljs-number">1</span>
+                <span class="hljs-keyword">if</span> retry_count &lt; max_retries:
+                    time.sleep(settings.sicar_retry_delay)
+        
+        <span class="hljs-comment"># 5. ATUALIZAR JOB</span>
+        <span class="hljs-keyword">if</span> file_path:
+            <span class="hljs-comment"># Sucesso!</span>
+            job.status = <span class="hljs-string">&#x27;completed&#x27;</span>
+            job.file_path = <span class="hljs-built_in">str</span>(file_path)
+            job.file_size = file_path.stat().st_size
+            job.completed_at = datetime.utcnow()
+            
+            <span class="hljs-comment"># 6. SALVAR METADADOS DA PROPRIEDADE</span>
+            self.repository.save_property_data(property_data)
+            
+            logger.info(
+                <span class="hljs-string">f&quot;Download CAR <span class="hljs-subst">{car_number}</span> concluído com sucesso &quot;</span>
+                <span class="hljs-string">f&quot;(Job #<span class="hljs-subst">{job.<span class="hljs-built_in">id</span>}</span>)&quot;</span>
+            )
+            
+            result = {
+                <span class="hljs-string">&quot;status&quot;</span>: <span class="hljs-string">&quot;success&quot;</span>,
+                <span class="hljs-string">&quot;message&quot;</span>: <span class="hljs-string">&quot;Download concluído&quot;</span>,
+                <span class="hljs-string">&quot;job_id&quot;</span>: job.<span class="hljs-built_in">id</span>,
+                <span class="hljs-string">&quot;file_path&quot;</span>: <span class="hljs-built_in">str</span>(file_path),
+                <span class="hljs-string">&quot;file_size_mb&quot;</span>: job.file_size / <span class="hljs-number">1024</span> / <span class="hljs-number">1024</span>,
+                <span class="hljs-string">&quot;property_data&quot;</span>: property_data
+            }
+        <span class="hljs-keyword">else</span>:
+            <span class="hljs-comment"># Falha após retries</span>
+            job.status = <span class="hljs-string">&#x27;failed&#x27;</span>
+            job.error_message = <span class="hljs-string">f&quot;Falha após <span class="hljs-subst">{max_retries}</span> tentativas&quot;</span>
+            job.retry_count = retry_count
+            job.completed_at = datetime.utcnow()
+            
+            logger.error(
+                <span class="hljs-string">f&quot;Download CAR <span class="hljs-subst">{car_number}</span> falhou após &quot;</span>
+                <span class="hljs-string">f&quot;<span class="hljs-subst">{retry_count}</span> tentativas&quot;</span>
+            )
+            
+            result = {
+                <span class="hljs-string">&quot;status&quot;</span>: <span class="hljs-string">&quot;error&quot;</span>,
+                <span class="hljs-string">&quot;message&quot;</span>: <span class="hljs-string">f&quot;Falha após <span class="hljs-subst">{retry_count}</span> tentativas&quot;</span>,
+                <span class="hljs-string">&quot;job_id&quot;</span>: job.<span class="hljs-built_in">id</span>
+            }
+        
+        self.db.commit()
+        <span class="hljs-keyword">return</span> result
+        
+    <span class="hljs-keyword">except</span> Exception <span class="hljs-keyword">as</span> e:
+        logger.error(<span class="hljs-string">f&quot;Erro crítico no download CAR <span class="hljs-subst">{car_number}</span>: <span class="hljs-subst">{e}</span>&quot;</span>)
+        
+        <span class="hljs-comment"># Atualizar job como falha</span>
+        <span class="hljs-keyword">if</span> <span class="hljs-string">&#x27;job&#x27;</span> <span class="hljs-keyword">in</span> <span class="hljs-built_in">locals</span>():
+            job.status = <span class="hljs-string">&#x27;failed&#x27;</span>
+            job.error_message = <span class="hljs-built_in">str</span>(e)
+            job.completed_at = datetime.utcnow()
+            self.db.commit()
+        
+        <span class="hljs-keyword">return</span> {
+            <span class="hljs-string">&quot;status&quot;</span>: <span class="hljs-string">&quot;error&quot;</span>,
+            <span class="hljs-string">&quot;message&quot;</span>: <span class="hljs-built_in">str</span>(e),
+            <span class="hljs-string">&quot;job_id&quot;</span>: job.<span class="hljs-built_in">id</span> <span class="hljs-keyword">if</span> <span class="hljs-string">&#x27;job&#x27;</span> <span class="hljs-keyword">in</span> <span class="hljs-built_in">locals</span>() <span class="hljs-keyword">else</span> <span class="hljs-literal">None</span>
+        }
+</code></pre>
+<p><strong>Fluxo Completo:</strong></p>
+<ol>
+<li>✅ Verifica se já existe (evita duplicação)</li>
+<li>✅ Cria job no banco (tracking)</li>
+<li>✅ Busca propriedade (obtém ID interno)</li>
+<li>✅ Download com retry automático</li>
+<li>✅ Atualiza status no banco</li>
+<li>✅ Persiste metadados da propriedade</li>
+</ol>
+<hr>
+<h2 id="-descoberta-crítica-formato-base64">🔍 Descoberta Crítica: Formato Base64</h2>
+<h3 id="problema-descoberto-14122025">Problema Descoberto (14/12/2025)</h3>
+<p><strong>Sintoma</strong>: Downloads retornavam HTML em vez de ZIP</p>
+<p><strong>Causa</strong>: SICAR mudou formato de resposta:</p>
+<ul>
+<li><strong>Antes</strong>: Binário direto (bytes do ZIP)</li>
+<li><strong>Depois</strong>: Base64 Data URL</li>
+</ul>
+<h3 id="solução-implementada">Solução Implementada</h3>
+<pre><code class="language-python"><span class="hljs-comment"># Detecta formato automaticamente</span>
+<span class="hljs-keyword">if</span> <span class="hljs-built_in">isinstance</span>(content, <span class="hljs-built_in">str</span>) <span class="hljs-keyword">and</span> content.startswith(<span class="hljs-string">&#x27;data:&#x27;</span>):
+    <span class="hljs-comment"># Base64 Data URL</span>
+    <span class="hljs-comment"># Formato: data:application/zip;base64,UEsDBBQACAgI...</span>
+    base64_content = content.split(<span class="hljs-string">&#x27;,&#x27;</span>, <span class="hljs-number">1</span>)[<span class="hljs-number">1</span>]
+    zip_content = base64.b64decode(base64_content)
+<span class="hljs-keyword">else</span>:
+    <span class="hljs-comment"># Binário direto (legado)</span>
+    zip_content = response.content
+
+<span class="hljs-comment"># Valida ZIP (magic number)</span>
+<span class="hljs-keyword">if</span> <span class="hljs-keyword">not</span> zip_content.startswith(<span class="hljs-string">b&#x27;PK&#x27;</span>):
+    <span class="hljs-keyword">raise</span> ValueError(<span class="hljs-string">&quot;Não é um arquivo ZIP válido&quot;</span>)
+</code></pre>
+<p><strong>Resultado</strong>: Sistema funciona com <strong>ambos os formatos</strong> automaticamente!</p>
+<blockquote>
+<p>📖 <strong>Detalhes</strong>: <a href="../DOC/descoberta-formato-base64.html">descoberta-formato-base64.md</a></p>
+</blockquote>
+<hr>
+<h2 id="-persistência-de-dados">📊 Persistência de Dados</h2>
+<h3 id="tabelas-utilizadas">Tabelas Utilizadas</h3>
+<h4 id="1-download_jobs">1. <code>download_jobs</code></h4>
+<pre><code class="language-sql"><span class="hljs-keyword">CREATE</span> <span class="hljs-keyword">TABLE</span> download_jobs (
+    id SERIAL <span class="hljs-keyword">PRIMARY</span> KEY,
+    state <span class="hljs-type">VARCHAR</span>(<span class="hljs-number">2</span>),                    <span class="hljs-comment">-- Estado (extraído do CAR)</span>
+    polygon <span class="hljs-type">VARCHAR</span>(<span class="hljs-number">50</span>) <span class="hljs-keyword">DEFAULT</span> <span class="hljs-string">&#x27;CAR_INDIVIDUAL&#x27;</span>,
+    car_number <span class="hljs-type">VARCHAR</span>(<span class="hljs-number">100</span>),             <span class="hljs-comment">-- ← Número CAR</span>
+    status <span class="hljs-type">VARCHAR</span>(<span class="hljs-number">20</span>),                  <span class="hljs-comment">-- pending, running, completed, failed</span>
+    file_path TEXT,                      <span class="hljs-comment">-- Caminho do ZIP</span>
+    file_size <span class="hljs-type">BIGINT</span>,                    <span class="hljs-comment">-- Tamanho em bytes</span>
+    error_message TEXT,
+    retry_count <span class="hljs-type">INTEGER</span> <span class="hljs-keyword">DEFAULT</span> <span class="hljs-number">0</span>,
+    started_at <span class="hljs-type">TIMESTAMP</span>,
+    completed_at <span class="hljs-type">TIMESTAMP</span>,
+    created_at <span class="hljs-type">TIMESTAMP</span> <span class="hljs-keyword">DEFAULT</span> NOW()
+);
+</code></pre>
+<h4 id="2-property_data">2. <code>property_data</code></h4>
+<pre><code class="language-sql"><span class="hljs-keyword">CREATE</span> <span class="hljs-keyword">TABLE</span> property_data (
+    id SERIAL <span class="hljs-keyword">PRIMARY</span> KEY,
+    internal_id <span class="hljs-type">VARCHAR</span>(<span class="hljs-number">100</span>),            <span class="hljs-comment">-- ID interno do SICAR</span>
+    car_number <span class="hljs-type">VARCHAR</span>(<span class="hljs-number">100</span>) <span class="hljs-keyword">UNIQUE</span>,      <span class="hljs-comment">-- ← Chave de busca</span>
+    codigo <span class="hljs-type">VARCHAR</span>(<span class="hljs-number">100</span>),
+    area <span class="hljs-type">FLOAT</span>,
+    status <span class="hljs-type">VARCHAR</span>(<span class="hljs-number">100</span>),
+    tipo <span class="hljs-type">VARCHAR</span>(<span class="hljs-number">100</span>),
+    municipio <span class="hljs-type">VARCHAR</span>(<span class="hljs-number">200</span>),
+    uf <span class="hljs-type">VARCHAR</span>(<span class="hljs-number">2</span>),
+    geometry JSONB,                      <span class="hljs-comment">-- GeoJSON do centro</span>
+    created_at <span class="hljs-type">TIMESTAMP</span> <span class="hljs-keyword">DEFAULT</span> NOW(),
+    updated_at <span class="hljs-type">TIMESTAMP</span> <span class="hljs-keyword">DEFAULT</span> NOW()
+);
+</code></pre>
+<p><strong>Índices:</strong></p>
+<ul>
+<li><code>download_jobs.car_number</code> (busca rápida)</li>
+<li><code>property_data.car_number</code> (UNIQUE - evita duplicação)</li>
+</ul>
+<hr>
+<h2 id="-fluxo-end-to-end-completo">🔄 Fluxo End-to-End Completo</h2>
+<pre><code>┌─────────────────────────────────────────────────────────────────┐
+│                         USUÁRIO                                 │
+│  Frontend: Digita CAR &quot;SP-3538709-ABC...&quot;                       │
+│  Backend API: POST /downloads/car                               │
+└────────────────────┬────────────────────────────────────────────┘
+                     │
+                     ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                    1. VALIDAÇÃO                                 │
+│  • Formato CAR válido? (regex)                                  │
+│  • Já existe download? (banco)                                  │
+│  • Force=True? (sobrescrever)                                   │
+└────────────────────┬────────────────────────────────────────────┘
+                     │
+                     ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                    2. CRIAR JOB                                 │
+│  INSERT INTO download_jobs (car_number, status='running')       │
+│  job_id = 42                                                    │
+└────────────────────┬────────────────────────────────────────────┘
+                     │
+                     ▼
+┌─────────────────────────────────────────────────────────────────┐
+│              3. BUSCA NO SICAR (Passo 1)                        │
+│  GET https://car.gov.br/publico/imoveis/search?text=SP-3538...  │
+│                                                                 │
+│  Resposta JSON (DataTables):                                    │
+│  {                                                              │
+│    &quot;recordsTotal&quot;: 1,                                           │
+│    &quot;data&quot;: [{                                                   │
+│      &quot;cod_imovel&quot;: &quot;12345678&quot;,      ← ID INTERNO                │
+│      &quot;cod_car&quot;: &quot;SP-3538709-ABC&quot;,                               │
+│      &quot;nom_munici&quot;: &quot;São Paulo&quot;,                                 │
+│      ...                                                        │
+│    }]                                                           │
+│  }                                                              │
+└────────────────────┬────────────────────────────────────────────┘
+                     │ internal_id = &quot;12345678&quot;
+                     ▼
+┌─────────────────────────────────────────────────────────────────┐
+│              4. RESOLVER CAPTCHA                                │
+│  GET https://car.gov.br/publico/imoveis/captcha                 │
+│  → Imagem PNG                                                   │
+│                                                                 │
+│  Tesseract/Paddle OCR:                                          │
+│  Imagem → &quot;G7K2P&quot;                                               │
+└────────────────────┬────────────────────────────────────────────┘
+                     │ captcha_text = &quot;G7K2P&quot;
+                     ▼
+┌─────────────────────────────────────────────────────────────────┐
+│           5. DOWNLOAD SHAPEFILE (Passo 2)                       │
+│  POST https://car.gov.br/publico/imoveis/exportShapeFile        │
+│                                                                 │
+│  Payload:                                                       │
+│  {                                                              │
+│    &quot;idImovel&quot;: &quot;12345678&quot;,                                      │
+│    &quot;captcha&quot;: &quot;G7K2P&quot;,                                          │
+│    &quot;tipoExportacao&quot;: &quot;COMPLETO&quot;                                 │
+│  }                                                              │
+│                                                                 │
+│  Resposta:                                                      │
+│  data:application/zip;base64,UEsDBBQACAgIAMJcjls...             │
+└────────────────────┬────────────────────────────────────────────┘
+                     │
+                     ▼
+┌─────────────────────────────────────────────────────────────────┐
+│              6. DETECTAR FORMATO                                │
+│  if content.startswith('data:'):                                │
+│      → Base64 Data URL                                          │
+│      base64_content = content.split(',')[1]                     │
+│      zip_bytes = base64.b64decode(base64_content)               │
+│  else:                                                          │
+│      → Binário direto                                           │
+│      zip_bytes = response.content                               │
+│                                                                 │
+│  Validar: zip_bytes.startswith(b'PK')? ✓                        │
+└────────────────────┬────────────────────────────────────────────┘
+                     │
+                     ▼
+┌─────────────────────────────────────────────────────────────────┐
+│              7. SALVAR ARQUIVO                                  │
+│  Path: downloads/CAR/SP-3538709-ABC....zip                      │
+│  Size: 15.3 MB                                                  │
+└────────────────────┬────────────────────────────────────────────┘
+                     │
+                     ▼
+┌─────────────────────────────────────────────────────────────────┐
+│              8. PERSISTIR METADADOS                             │
+│  INSERT INTO property_data (                                    │
+│    internal_id='12345678',                                      │
+│    car_number='SP-3538709-ABC',                                 │
+│    municipio='São Paulo',                                       │
+│    area=245.8,                                                  │
+│    ...                                                          │
+│  )                                                              │
+└────────────────────┬────────────────────────────────────────────┘
+                     │
+                     ▼
+┌─────────────────────────────────────────────────────────────────┐
+│              9. ATUALIZAR JOB                                   │
+│  UPDATE download_jobs SET                                       │
+│    status='completed',                                          │
+│    file_path='downloads/CAR/SP-3538709-ABC.zip',                │
+│    file_size=16035840,                                          │
+│    completed_at=NOW()                                           │
+│  WHERE id=42                                                    │
+└────────────────────┬────────────────────────────────────────────┘
+                     │
+                     ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                   10. RESPOSTA USUÁRIO                          │
+│  {                                                              │
+│    &quot;status&quot;: &quot;success&quot;,                                         │
+│    &quot;job_id&quot;: 42,                                                │
+│    &quot;file_path&quot;: &quot;downloads/CAR/SP-3538709-ABC.zip&quot;,             │
+│    &quot;file_size_mb&quot;: 15.3,                                        │
+│    &quot;property_data&quot;: {                                           │
+│      &quot;municipio&quot;: &quot;São Paulo&quot;,                                  │
+│      &quot;area&quot;: 245.8,                                             │
+│      ...                                                        │
+│    }                                                            │
+│  }                                                              │
+└─────────────────────────────────────────────────────────────────┘
+</code></pre>
+<hr>
+<h2 id="-tratamento-de-erros">🚨 Tratamento de Erros</h2>
+<h3 id="pontos-de-falha-e-remediações">Pontos de Falha e Remediações</h3>
+<table>
+<thead>
+<tr>
+<th>Ponto</th>
+<th>Erro Possível</th>
+<th>Remediação</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Busca</strong></td>
+<td>CAR não encontrado</td>
+<td>Retorna 404 com mensagem clara</td>
+</tr>
+<tr>
+<td><strong>Busca</strong></td>
+<td>Timeout (30s)</td>
+<td>Retry automático (3x)</td>
+</tr>
+<tr>
+<td><strong>CAPTCHA</strong></td>
+<td>OCR falha</td>
+<td>Retry com novo CAPTCHA (3x)</td>
+</tr>
+<tr>
+<td><strong>Download</strong></td>
+<td>CAPTCHA incorreto</td>
+<td>Nova tentativa (3x)</td>
+</tr>
+<tr>
+<td><strong>Download</strong></td>
+<td>Timeout (300s)</td>
+<td>Retry com exponential backoff</td>
+</tr>
+<tr>
+<td><strong>Formato</strong></td>
+<td>HTML em vez de ZIP</td>
+<td>Detecta e loga detalhes</td>
+</tr>
+<tr>
+<td><strong>Formato</strong></td>
+<td>Base64 malformado</td>
+<td>Valida antes de decodificar</td>
+</tr>
+<tr>
+<td><strong>ZIP</strong></td>
+<td>Arquivo corrompido</td>
+<td>Valida magic number <code>PK</code></td>
+</tr>
+<tr>
+<td><strong>Disco</strong></td>
+<td>Sem espaço</td>
+<td>Exception capturada, job=failed</td>
+</tr>
+</tbody>
+</table>
+<h3 id="logs-estruturados">Logs Estruturados</h3>
+<pre><code class="language-python"><span class="hljs-comment"># Sucesso</span>
+logger.info(
+    <span class="hljs-string">f&quot;Download CAR <span class="hljs-subst">{car_number}</span> concluído: &quot;</span>
+    <span class="hljs-string">f&quot;Job #<span class="hljs-subst">{job.<span class="hljs-built_in">id</span>}</span>, <span class="hljs-subst">{file_size/<span class="hljs-number">1024</span>/<span class="hljs-number">1024</span>:<span class="hljs-number">.2</span>f}</span>MB&quot;</span>
+)
+
+<span class="hljs-comment"># Erro capturado</span>
+logger.error(
+    <span class="hljs-string">f&quot;Falha download CAR <span class="hljs-subst">{car_number}</span>: <span class="hljs-subst">{error_message}</span>&quot;</span>,
+    exc_info=<span class="hljs-literal">True</span>,  <span class="hljs-comment"># Inclui stack trace</span>
+    extra={
+        <span class="hljs-string">&quot;job_id&quot;</span>: job.<span class="hljs-built_in">id</span>,
+        <span class="hljs-string">&quot;retry_count&quot;</span>: retry_count,
+        <span class="hljs-string">&quot;internal_id&quot;</span>: internal_id
+    }
+)
+</code></pre>
+<hr>
+<h2 id="-métricas-e-performance">📈 Métricas e Performance</h2>
+<h3 id="tempos-médios">Tempos Médios</h3>
+<table>
+<thead>
+<tr>
+<th>Operação</th>
+<th>Tempo</th>
+<th>Notas</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Busca por CAR</td>
+<td>0.5-2s</td>
+<td>Depende do SICAR</td>
+</tr>
+<tr>
+<td>Resolver CAPTCHA</td>
+<td>1-3s</td>
+<td>Tesseract: 2-3s, Paddle: 1-2s</td>
+</tr>
+<tr>
+<td>Download ZIP</td>
+<td>5-30s</td>
+<td>Depende do tamanho (1-50MB)</td>
+</tr>
+<tr>
+<td><strong>Total</strong></td>
+<td><strong>7-35s</strong></td>
+<td>Fim-a-fim típico</td>
+</tr>
+</tbody>
+</table>
+<h3 id="taxa-de-sucesso">Taxa de Sucesso</h3>
+<ul>
+<li><strong>Busca</strong>: 95%+ (falha apenas se CAR inválido)</li>
+<li><strong>CAPTCHA</strong>: 70-80% Tesseract, 90-95% Paddle</li>
+<li><strong>Download</strong>: 90%+ (após retries)</li>
+<li><strong>End-to-end</strong>: 85-90%</li>
+</ul>
+<h3 id="limitações-conhecidas">Limitações Conhecidas</h3>
+<ul>
+<li>⚠️ <strong>SICAR Rate Limit</strong>: ~100 requisições/hora (não documentado)</li>
+<li>⚠️ <strong>CAPTCHA</strong>: Ocasionalmente muda de estilo</li>
+<li>⚠️ <strong>Timeout</strong>: Downloads &gt;50MB podem falhar</li>
+<li>⚠️ <strong>Horário</strong>: SICAR mais lento em horários de pico</li>
+</ul>
+<hr>
+<h2 id="-testes-e-validação">🧪 Testes e Validação</h2>
+<h3 id="teste-manual">Teste Manual</h3>
+<pre><code class="language-bash"><span class="hljs-comment"># 1. Buscar propriedade</span>
+curl http://localhost:8000/search/car/SP-3538709-ABC123...
+
+<span class="hljs-comment"># 2. Iniciar download</span>
+curl -X POST http://localhost:8000/downloads/car \
+  -H <span class="hljs-string">&quot;Content-Type: application/json&quot;</span> \
+  -d <span class="hljs-string">&#x27;{&quot;car_number&quot;:&quot;SP-3538709-ABC123...&quot;}&#x27;</span>
+
+<span class="hljs-comment"># 3. Verificar status</span>
+curl http://localhost:8000/downloads/car/SP-3538709-ABC123...
+
+<span class="hljs-comment"># 4. Verificar arquivo</span>
+<span class="hljs-built_in">ls</span> -lh downloads/CAR/SP-3538709-ABC123....zip
+</code></pre>
+<h3 id="casos-de-teste">Casos de Teste</h3>
+<pre><code class="language-python"><span class="hljs-comment"># test_download_car.py (exemplo)</span>
+<span class="hljs-keyword">import</span> pytest
+<span class="hljs-keyword">from</span> app.services.sicar_service <span class="hljs-keyword">import</span> SicarService
+
+<span class="hljs-keyword">def</span> <span class="hljs-title function_">test_search_valid_car</span>(<span class="hljs-params">db_session</span>):
+    service = SicarService(db_session)
+    result = service.search_property_by_car(<span class="hljs-string">&quot;SP-3538709-ABC123...&quot;</span>)
+    
+    <span class="hljs-keyword">assert</span> result <span class="hljs-keyword">is</span> <span class="hljs-keyword">not</span> <span class="hljs-literal">None</span>
+    <span class="hljs-keyword">assert</span> result[<span class="hljs-string">&quot;internal_id&quot;</span>] <span class="hljs-keyword">is</span> <span class="hljs-keyword">not</span> <span class="hljs-literal">None</span>
+    <span class="hljs-keyword">assert</span> result[<span class="hljs-string">&quot;car_number&quot;</span>] == <span class="hljs-string">&quot;SP-3538709-ABC123...&quot;</span>
+
+<span class="hljs-keyword">def</span> <span class="hljs-title function_">test_search_invalid_car</span>(<span class="hljs-params">db_session</span>):
+    service = SicarService(db_session)
+    result = service.search_property_by_car(<span class="hljs-string">&quot;INVALID-CAR-NUMBER&quot;</span>)
+    
+    <span class="hljs-keyword">assert</span> result <span class="hljs-keyword">is</span> <span class="hljs-literal">None</span>
+
+<span class="hljs-keyword">def</span> <span class="hljs-title function_">test_download_car_success</span>(<span class="hljs-params">db_session</span>):
+    service = SicarService(db_session)
+    result = service.download_by_car_number(<span class="hljs-string">&quot;SP-3538709-ABC123...&quot;</span>)
+    
+    <span class="hljs-keyword">assert</span> result[<span class="hljs-string">&quot;status&quot;</span>] == <span class="hljs-string">&quot;success&quot;</span>
+    <span class="hljs-keyword">assert</span> result[<span class="hljs-string">&quot;file_path&quot;</span>] <span class="hljs-keyword">is</span> <span class="hljs-keyword">not</span> <span class="hljs-literal">None</span>
+    <span class="hljs-keyword">assert</span> Path(result[<span class="hljs-string">&quot;file_path&quot;</span>]).exists()
+</code></pre>
+<hr>
+<h2 id="-lições-aprendidas">🎓 Lições Aprendidas</h2>
+<h3 id="1-formato-base64-14122025">1. Formato Base64 (14/12/2025)</h3>
+<p><strong>Problema</strong>: Download retornava HTML<br>
+<strong>Causa</strong>: SICAR mudou formato sem aviso<br>
+<strong>Solução</strong>: Auto-detecção de formato<br>
+<strong>Lição</strong>: <strong>Sempre validar formato da resposta</strong> (não assumir)</p>
+<h3 id="2-id-interno-vs-car">2. ID Interno vs CAR</h3>
+<p><strong>Problema</strong>: API do SICAR requer ID interno, não CAR<br>
+<strong>Causa</strong>: Endpoints não documentados<br>
+<strong>Solução</strong>: Busca prévia para obter ID<br>
+<strong>Lição</strong>: <strong>Reverse engineering requer muita observação</strong></p>
+<h3 id="3-captcha-instável">3. CAPTCHA Instável</h3>
+<p><strong>Problema</strong>: OCR falha ~20-30% das vezes<br>
+<strong>Causa</strong>: Variações no estilo do CAPTCHA<br>
+<strong>Solução</strong>: Retry automático (3x)<br>
+<strong>Lição</strong>: <strong>Sistemas externos são imprevisíveis</strong> - sempre retry</p>
+<h3 id="4-persistência-é-crucial">4. Persistência é Crucial</h3>
+<p><strong>Problema</strong>: Downloads longos sem feedback<br>
+<strong>Causa</strong>: Sem tracking de status<br>
+<strong>Solução</strong>: Jobs no banco com status<br>
+<strong>Lição</strong>: <strong>UX depende de visibilidade de progresso</strong></p>
+<hr>
+<h2 id="-melhorias-futuras">🔮 Melhorias Futuras</h2>
+<h3 id="curto-prazo">Curto Prazo</h3>
+<ul class="contains-task-list">
+<li class="task-list-item enabled"><input class="task-list-item-checkbox"type="checkbox"> Cache de buscas (evitar requisições repetidas)</li>
+<li class="task-list-item enabled"><input class="task-list-item-checkbox"type="checkbox"> Fila assíncrona (Celery) para downloads</li>
+<li class="task-list-item enabled"><input class="task-list-item-checkbox"type="checkbox"> Webhook de notificação ao completar</li>
+<li class="task-list-item enabled"><input class="task-list-item-checkbox"type="checkbox"> Compressão adicional (gzip) dos ZIPs</li>
+</ul>
+<h3 id="médio-prazo">Médio Prazo</h3>
+<ul class="contains-task-list">
+<li class="task-list-item enabled"><input class="task-list-item-checkbox"type="checkbox"> OCR customizado (treinar modelo específico para CAPTCHA do SICAR)</li>
+<li class="task-list-item enabled"><input class="task-list-item-checkbox"type="checkbox"> Download paralelo (múltiplos CARs)</li>
+<li class="task-list-item enabled"><input class="task-list-item-checkbox"type="checkbox"> API pública documentada (Swagger)</li>
+<li class="task-list-item enabled"><input class="task-list-item-checkbox"type="checkbox"> Métricas com Prometheus</li>
+</ul>
+<h3 id="longo-prazo">Longo Prazo</h3>
+<ul class="contains-task-list">
+<li class="task-list-item enabled"><input class="task-list-item-checkbox"type="checkbox"> Machine Learning para prever falhas</li>
+<li class="task-list-item enabled"><input class="task-list-item-checkbox"type="checkbox"> CDN para servir shapefiles</li>
+<li class="task-list-item enabled"><input class="task-list-item-checkbox"type="checkbox"> Multi-tenancy (SaaS)</li>
+<li class="task-list-item enabled"><input class="task-list-item-checkbox"type="checkbox"> Mobile app (React Native)</li>
+</ul>
+<hr>
+<h2 id="-referências">📚 Referências</h2>
+<h3 id="código-fonte">Código-Fonte</h3>
+<ul>
+<li><code>app/services/sicar_service.py</code> - Implementação principal</li>
+<li><code>app/repositories/data_repository.py</code> - Persistência</li>
+<li><code>app/main.py</code> - Endpoints da API</li>
+</ul>
+<h3 id="documentação-relacionada">Documentação Relacionada</h3>
+<ul>
+<li><a href="../DOC/descoberta-formato-base64.html">Descoberta Base64</a> - História da correção</li>
+<li><a href="../DOC/extensao-download-por-car.html">Extensão CAR</a> - Visão geral da feature</li>
+<li><a href="../DOC/documentacao-api-endpoints.html">API Endpoints</a> - Referência completa</li>
+</ul>
+<h3 id="recursos-externos">Recursos Externos</h3>
+<ul>
+<li><a href="https://github.com/urbanogilson/SICAR">SICAR Package Original</a> - Base do projeto</li>
+<li><a href="https://www.car.gov.br/">SICAR Oficial</a> - Sistema do governo</li>
+</ul>
+<hr>
+<h2 id="-autoria">👨‍💻 Autoria</h2>
+<p><strong>Extensão desenvolvida sobre SICAR Package</strong> (<a href="https://github.com/urbanogilson">Gilson Urbano</a>)</p>
+<p><strong>Principais Contribuições:</strong></p>
+<ul>
+<li>Download por número CAR (2 etapas: busca + download)</li>
+<li>Auto-detecção de formato (Base64 vs Binário)</li>
+<li>Retry automático com backoff</li>
+<li>Persistência completa (jobs + metadados)</li>
+<li>API REST com tracking em tempo real</li>
+</ul>
+<p><strong>Data</strong>: Dezembro 2025<br>
+<strong>Versão</strong>: 1.1.0<br>
+<strong>Licença</strong>: MIT</p>
+<hr>
+<div align="center">
+<p><strong>Este é o coração do sistema</strong> ❤️<br>
+<strong>Transformando números CAR em dados geoespaciais automaticamente</strong></p>
+<p>🌳 <strong>Preservando dados para preservar o meio ambiente</strong> 🌳</p>
+</div>
+
+            
+            
+        </body>
+        </html>

@@ -311,6 +311,19 @@ class SicarService:
             logger.error(f"Erro na coleta diária: {e}")
             raise
 
+    # TODO: Criar classe CARDownloadManager ou CARService para encapsular as 3 funções customizadas
+    #       que foram adicionadas ao pacote SICAR (search_by_car_number, _download_property_shapefile, 
+    #       download_by_car_number). Isso permitirá:
+    #       - Manter código customizado dentro do nosso projeto (não depender de fork/modificação do pacote)
+    #       - Adicionar validações e tratamento de erros específicos do negócio
+    #       - Implementar cache de buscas (internal_id por CAR number) para reduzir chamadas à API
+    #       - Adicionar métricas e logging customizado (tempo de busca, taxa de sucesso CAPTCHA, etc)
+    #       - Facilitar testes unitários mockando chamadas ao SICAR original
+    #       - Integrar diretamente com nosso banco de dados (salvar geometrias, histórico, etc)
+    #       - Adicionar retry inteligente com backoff exponencial
+    #       Sugestão: criar app/services/car_download_manager.py
+    #       Referência: Documentation/CORE-DOWNLOAD-CAR.md (869 linhas de documentação técnica completa)
+
     def search_property_by_car(self, car_number: str) -> Dict:
         """
         Busca uma propriedade pelo número CAR.

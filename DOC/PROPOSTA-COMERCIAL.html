@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <title>SICAR API - Proposta Comercial</title>
+            <style>
+/* From extension vscode.github */
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
+.vscode-dark img[src$=\#gh-light-mode-only],
+.vscode-light img[src$=\#gh-dark-mode-only],
+.vscode-high-contrast:not(.vscode-high-contrast-light) img[src$=\#gh-light-mode-only],
+.vscode-high-contrast-light img[src$=\#gh-dark-mode-only] {
+	display: none;
+}
+
+</style>
+            <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex/dist/katex.min.css">
+<link href="https://cdn.jsdelivr.net/npm/katex-copytex@latest/dist/katex-copytex.min.css" rel="stylesheet" type="text/css">
+        <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/Microsoft/vscode/extensions/markdown-language-features/media/markdown.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/Microsoft/vscode/extensions/markdown-language-features/media/highlight.css">
+<style>
+            body {
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe WPC', 'Segoe UI', system-ui, 'Ubuntu', 'Droid Sans', sans-serif;
+                font-size: 14px;
+                line-height: 1.6;
+            }
+        </style>
+        <style>
+.task-list-item {
+    list-style-type: none;
+}
+
+.task-list-item-checkbox {
+    margin-left: -20px;
+    vertical-align: middle;
+    pointer-events: none;
+}
+</style>
+<style>
+:root {
+  --color-note: #0969da;
+  --color-tip: #1a7f37;
+  --color-warning: #9a6700;
+  --color-severe: #bc4c00;
+  --color-caution: #d1242f;
+  --color-important: #8250df;
+}
+
+</style>
+<style>
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-note: #2f81f7;
+    --color-tip: #3fb950;
+    --color-warning: #d29922;
+    --color-severe: #db6d28;
+    --color-caution: #f85149;
+    --color-important: #a371f7;
+  }
+}
+
+</style>
+<style>
+.markdown-alert {
+  padding: 0.5rem 1rem;
+  margin-bottom: 16px;
+  color: inherit;
+  border-left: .25em solid #888;
+}
+
+.markdown-alert>:first-child {
+  margin-top: 0
+}
+
+.markdown-alert>:last-child {
+  margin-bottom: 0
+}
+
+.markdown-alert .markdown-alert-title {
+  display: flex;
+  font-weight: 500;
+  align-items: center;
+  line-height: 1
+}
+
+.markdown-alert .markdown-alert-title .octicon {
+  margin-right: 0.5rem;
+  display: inline-block;
+  overflow: visible !important;
+  vertical-align: text-bottom;
+  fill: currentColor;
+}
+
+.markdown-alert.markdown-alert-note {
+  border-left-color: var(--color-note);
+}
+
+.markdown-alert.markdown-alert-note .markdown-alert-title {
+  color: var(--color-note);
+}
+
+.markdown-alert.markdown-alert-important {
+  border-left-color: var(--color-important);
+}
+
+.markdown-alert.markdown-alert-important .markdown-alert-title {
+  color: var(--color-important);
+}
+
+.markdown-alert.markdown-alert-warning {
+  border-left-color: var(--color-warning);
+}
+
+.markdown-alert.markdown-alert-warning .markdown-alert-title {
+  color: var(--color-warning);
+}
+
+.markdown-alert.markdown-alert-tip {
+  border-left-color: var(--color-tip);
+}
+
+.markdown-alert.markdown-alert-tip .markdown-alert-title {
+  color: var(--color-tip);
+}
+
+.markdown-alert.markdown-alert-caution {
+  border-left-color: var(--color-caution);
+}
+
+.markdown-alert.markdown-alert-caution .markdown-alert-title {
+  color: var(--color-caution);
+}
+
+</style>
+        
+        </head>
+        <body class="vscode-body vscode-light">
+            <h1 id="sicar-api---proposta-comercial">SICAR API - Proposta Comercial</h1>
+<h2 id="descrição">Descrição</h2>
+<p>Sistema de automação para download de dados do <strong>SICAR (Cadastro Ambiental Rural)</strong> com interface web e API REST.</p>
+<p><strong>Stack:</strong> Python + FastAPI + React + PostgreSQL</p>
+<p><strong>Principais funcionalidades:</strong></p>
+<ul>
+<li>Download automático por estado (27 estados brasileiros)</li>
+<li><strong>Download individual por número CAR</strong> (funcionalidade exclusiva desenvolvida)</li>
+<li>Resolução automática de CAPTCHA</li>
+<li>Agendador configurável (diário/semanal/intervalo)</li>
+<li>Dashboard web com estatísticas</li>
+<li>API REST com 22 endpoints documentados</li>
+</ul>
+<hr>
+<h2 id="investimento">Investimento</h2>
+<p><strong>Valor:</strong> R$ 3.500,00<br>
+<strong>Horas:</strong> 30 horas de desenvolvimento</p>
+<p><strong>Breakdown:</strong></p>
+<ul>
+<li>13/12: 6h - Setup e estrutura</li>
+<li>14/12: 12h - Core e funcionalidade CAR</li>
+<li>15/12: 4h - Frontend</li>
+<li>16/12: 4h - Agendador e documentação</li>
+<li>17/12: 4h - Refinamentos finais</li>
+</ul>
+<hr>
+<h2 id="entregáveis">Entregáveis</h2>
+<ul>
+<li>Código-fonte completo (Python + React)</li>
+<li>Banco de dados PostgreSQL estruturado</li>
+<li>Interface web responsiva</li>
+<li>Documentação técnica (20+ documentos)</li>
+<li>Scripts de instalação e deploy</li>
+<li>Docker + docker-compose</li>
+</ul>
+<hr>
+<h2 id="suporte">Suporte</h2>
+<p><strong>6 MESES DE SUPORTE INCLUSO</strong></p>
+<p>Cobertura:</p>
+<ul>
+<li>Correção de bugs</li>
+<li>Dúvidas de uso e configuração</li>
+</ul>
+<hr>
+<p><strong>Desenvolvedor:</strong> Luis Montagner<br>
+<strong>Projeto:</strong> SICAR API v1.1.0<br>
+<strong>Data:</strong> 13-17 Dezembro 2025</p>
+
+            <script async src="https://cdn.jsdelivr.net/npm/katex-copytex@latest/dist/katex-copytex.min.js"></script>
+            
+        </body>
+        </html>
