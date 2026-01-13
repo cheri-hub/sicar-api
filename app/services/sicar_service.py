@@ -8,6 +8,7 @@ incluindo downloads, parsing de dados e persistência no banco.
 import os
 import zipfile
 import logging
+import shutil
 from pathlib import Path
 from typing import Dict, List, Optional
 from datetime import datetime
@@ -213,6 +214,40 @@ class SicarService:
             
             raise
 
+    def check_disk_space(self) -> Dict:
+        """
+        Verifica o espaço disponível em disco.
+        
+        Returns:
+            Dict com informações de disco (total, usado, livre em GB)
+        """
+        try:
+            # Obter estatísticas do disco onde está a pasta de downloads
+            download_path = Path(self.download_folder).resolve()
+            usage = shutil.disk_usage(download_path)
+            
+            # Converter bytes para GB
+            total_gb = usage.total / (1024 ** 3)
+            used_gb = usage.used / (1024 ** 3)
+            free_gb = usage.free / (1024 ** 3)
+            percent_used = (usage.used / usage.total) * 100
+            
+            return {
+                "total_gb": round(total_gb, 2),
+                "used_gb": round(used_gb, 2),
+                "free_gb": round(free_gb, 2),
+                "percent_used": round(percent_used, 2),
+                "min_required_gb": settings.min_disk_space_gb,
+                "has_space": free_gb >= settings.min_disk_space_gb,
+                "path": str(download_path)
+            }
+        except Exception as e:
+            logger.error(f"Erro ao verificar espaço em disco: {e}")
+            return {
+                "error": str(e),
+                "has_space": False
+            }
+    
     def download_state(
         self,
         state: str,
@@ -228,6 +263,20 @@ class SicarService:
         Returns:
             Lista de DownloadJobs criados
         """
+        # Verificar limite de downloads concorrentes
+        running_count = self.repository.count_running_downloads()
+        if running_count >= settings.max_concurrent_downloads:
+            error_msg = f"Limite de downloads concorrentes atingido: {running_count}/{settings.max_concurrent_downloads} em execução"
+            logger.warning(error_msg)
+            raise Exception(error_msg)
+        
+        # Verificar espaço em disco antes de iniciar
+        disk_info = self.check_disk_space()
+        if not disk_info.get("has_space", False):
+            error_msg = f"Espaço insuficiente em disco: {disk_info.get('free_gb', 0):.2f}GB livre (mínimo: {settings.min_disk_space_gb}GB)"
+            logger.error(error_msg)
+            raise Exception(error_msg)
+        
         if polygons is None:
             polygons = [
                 p.strip() 
@@ -370,6 +419,20 @@ class SicarService:
             DownloadJob criado ou None se já existe e force=False
         """
         try:
+            # Verificar limite de downloads concorrentes
+            running_count = self.repository.count_running_downloads()
+            if running_count >= settings.max_concurrent_downloads:
+                error_msg = f"Limite de downloads concorrentes atingido: {running_count}/{settings.max_concurrent_downloads} em execução"
+                logger.warning(error_msg)
+                raise Exception(error_msg)
+            
+            # Verificar espaço em disco antes de iniciar
+            disk_info = self.check_disk_space()
+            if not disk_info.get("has_space", False):
+                error_msg = f"Espaço insuficiente em disco: {disk_info.get('free_gb', 0):.2f}GB livre (mínimo: {settings.min_disk_space_gb}GB)"
+                logger.error(error_msg)
+                raise Exception(error_msg)
+            
             # Verificar se já existe download recente
             if not force:
                 existing = self.repository.get_download_by_car_number(car_number)

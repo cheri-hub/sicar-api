@@ -53,8 +53,23 @@ class Settings(BaseSettings):
     api_reload: bool = False
 
     # Segurança
-    cors_origins: list = ["*"]
+    cors_origins: str = "*"  # Separados por vírgula: "http://localhost:3000,https://app.com"
     api_key: Optional[str] = None  # Se definido, requer autenticação
+    
+    # IP Whitelist
+    allowed_ips: str = ""  # Separados por vírgula: "192.168.1.100,10.0.0.50" (vazio = aceita todos)
+    
+    # Rate Limiting
+    rate_limit_enabled: bool = True
+    rate_limit_per_minute_downloads: int = 10  # Downloads por minuto
+    rate_limit_per_minute_search: int = 20  # Buscas por minuto
+    rate_limit_per_minute_read: int = 100  # Leituras por minuto
+    
+    # Validação de Disco
+    min_disk_space_gb: int = 10  # Espaço mínimo em GB antes de bloquear downloads
+    
+    # Limites de Concorrência
+    max_concurrent_downloads: int = 5  # Máximo de downloads simultâneos permitidos
 
     class Config:
         """Configuração do Pydantic Settings."""

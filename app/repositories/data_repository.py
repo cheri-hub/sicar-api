@@ -198,6 +198,28 @@ class DataRepository:
             DownloadJob.state == state,
             DownloadJob.status == 'completed'
         ).order_by(desc(DownloadJob.completed_at)).first()
+    
+    def count_running_downloads(self) -> int:
+        """
+        Conta o número de downloads atualmente em execução.
+        
+        Returns:
+            Número de downloads com status 'running'
+        """
+        return self.db.query(DownloadJob).filter(
+            DownloadJob.status == 'running'
+        ).count()
+    
+    def get_running_downloads(self) -> List[DownloadJob]:
+        """
+        Retorna todos os downloads em execução.
+        
+        Returns:
+            Lista de DownloadJob com status 'running'
+        """
+        return self.db.query(DownloadJob).filter(
+            DownloadJob.status == 'running'
+        ).order_by(DownloadJob.started_at).all()
 
     def get_latest_downloads_by_states(self) -> Dict[str, Optional[DownloadJob]]:
         """

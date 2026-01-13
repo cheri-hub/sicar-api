@@ -1,0 +1,86 @@
+# ===================================================================
+# Deploy to Production
+# ===================================================================
+# Este workflow faz deploy automático para o servidor de produção
+# Executa após publicar uma release ou manualmente
+# ===================================================================
+
+name: Deploy
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+          - production
+          - staging
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  deploy:
+    name: 🚀 Deploy
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment || 'production' }}
+    
+    steps:
+      - name: 📥 Checkout
+        uses: actions/checkout@v4
+
+      - name: 🔐 Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 🚀 Deploy to Server via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT || 22 }}
+          script: |
+            # Login no GitHub Container Registry
+            echo ${{ secrets.GITHUB_TOKEN }} | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+            
+            # Navegar para diretório do projeto
+            cd /opt/sicarapi
+            
+            # Pull da nova imagem
+            docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+            
+            # Atualizar containers
+            docker-compose pull
+            docker-compose up -d --force-recreate
+            
+            # Limpar imagens antigas
+            docker image prune -f
+            
+            # Verificar saúde
+            sleep 10
+            curl -f http://localhost:8000/health || exit 1
+            
+            echo "✅ Deploy completed successfully!"
+
+      - name: 📧 Notify Success
+        if: success()
+        run: |
+          echo "🚀 Deploy successful!"
+          echo "Image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest"
+          echo "Environment: ${{ github.event.inputs.environment || 'production' }}"
+
+      - name: 🚨 Notify Failure
+        if: failure()
+        run: |
+          echo "❌ Deploy failed!"
+          echo "Check logs for details"

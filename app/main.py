@@ -11,7 +11,7 @@ from typing import List, Optional, Any
 from contextlib import asynccontextmanager
 from datetime import datetime
 
-from fastapi import FastAPI, Depends, HTTPException, BackgroundTasks, status
+from fastapi import FastAPI, Depends, HTTPException, BackgroundTasks, status, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
@@ -19,6 +19,9 @@ from pydantic import BaseModel
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 import re
 
 from app.config import settings
@@ -27,6 +30,43 @@ from app.scheduler import scheduler
 from app.services.sicar_service import SicarService
 from app.repositories.data_repository import DataRepository
 from app.models import DownloadJob, StateRelease
+from app.auth import verify_api_key
+from app.audit_logging import AuditLoggingMiddleware
+
+
+# Middleware para validar IP whitelist
+class IPWhitelistMiddleware(BaseHTTPMiddleware):
+    """Middleware que valida IPs permitidos a acessar a API."""
+    
+    async def dispatch(self, request: Request, call_next):
+        # Se ALLOWED_IPS estiver vazio, aceita todos
+        if not settings.allowed_ips or settings.allowed_ips.strip() == "":
+            return await call_next(request)
+        
+        # Lista de IPs permitidos
+        allowed_ips = [ip.strip() for ip in settings.allowed_ips.split(",")]
+        
+        # Obter IP real do cliente (considera proxy)
+        client_ip = request.headers.get("X-Real-IP") or \
+                    request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or \
+                    request.client.host
+        
+        # Sempre permitir localhost (útil para Docker)
+        if client_ip in ["127.0.0.1", "::1", "localhost"]:
+            return await call_next(request)
+        
+        # Validar se IP está na whitelist
+        if client_ip not in allowed_ips:
+            logger.warning(f"IP bloqueado: {client_ip} tentou acessar {request.url.path}")
+            return JSONResponse(
+                status_code=status.HTTP_403_FORBIDDEN,
+                content={
+                    "detail": f"Acesso negado: IP {client_ip} não autorizado",
+                    "allowed_ips": allowed_ips
+                }
+            )
+        
+        return await call_next(request)
 
 
 # Middleware para adicionar 'Z' em todos os timestamps
@@ -128,6 +168,18 @@ class HealthResponse(BaseModel):
     """Schema para resposta de health check."""
     status: str
     database: str
+
+
+class DiskHealthResponse(BaseModel):
+    """Schema para resposta de verificação de disco."""
+    total_gb: float
+    used_gb: float
+    free_gb: float
+    percent_used: float
+    min_required_gb: int
+    has_space: bool
+    path: str
+    warning: Optional[str] = None
     scheduler: str
     active_jobs: int
     version: str
@@ -197,13 +249,26 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+# Configurar rate limiting
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# Adicionar middleware de audit logging (primeira camada - registra tudo)
+app.add_middleware(AuditLoggingMiddleware)
+
+# Adicionar middleware de IP whitelist (segunda camada de segurança)
+app.add_middleware(IPWhitelistMiddleware)
+
 # Adicionar middleware de timezone
 app.add_middleware(TimezoneMiddleware)
 
 # Configurar CORS
+# Converter string separada por vírgula em lista
+cors_origins = [origin.strip() for origin in settings.cors_origins.split(",")]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origins,
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -243,6 +308,46 @@ async def health_check(db: Session = Depends(get_db)):
         database=db_status,
         scheduler=scheduler_status,
         active_jobs=active_jobs,
+        version=settings.app_version
+    )
+
+
+@app.get("/health/disk", response_model=DiskHealthResponse, tags=["Health"])
+async def disk_health_check(db: Session = Depends(get_db)):
+    """
+    Verifica o espaço disponível em disco.
+    
+    Útil para monitoramento do servidor C# antes de requisitar downloads.
+    Retorna informações detalhadas sobre uso de disco.
+    """
+    sicar_service = SicarService(db)
+    disk_info = sicar_service.check_disk_space()
+    
+    # Se houver erro, lançar exceção HTTP
+    if "error" in disk_info:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Erro ao verificar disco: {disk_info['error']}"
+        )
+    
+    # Adicionar warning se espaço baixo (< 20% ou < 20GB)
+    warning = None
+    if disk_info["free_gb"] < 20:
+        warning = f"Espaço em disco crítico: apenas {disk_info['free_gb']:.2f}GB livres"
+    elif disk_info["percent_used"] > 80:
+        warning = f"Disco com {disk_info['percent_used']:.1f}% de uso"
+    
+    return DiskHealthResponse(
+        total_gb=disk_info["total_gb"],
+        used_gb=disk_info["used_gb"],
+        free_gb=disk_info["free_gb"],
+        percent_used=disk_info["percent_used"],
+        min_required_gb=disk_info["min_required_gb"],
+        has_space=disk_info["has_space"],
+        path=disk_info["path"],
+        warning=warning,
+        scheduler="running" if settings.schedule_enabled else "stopped",
+        active_jobs=0,  # TODO: implementar contagem real de jobs ativos
         version=settings.app_version
     )
 
@@ -287,10 +392,12 @@ class SettingUpdate(BaseModel):
     description: Optional[str] = None
 
 
-@app.put("/settings/{key}", tags=["Settings"])
+@app.put("/settings/{key}", tags=["Settings"], dependencies=[Depends(verify_api_key)])
 async def update_setting(key: str, setting_data: SettingUpdate, db: Session = Depends(get_db)):
     """
     Atualiza ou cria uma configuração.
+    
+    Requer autenticação via API Key no header X-API-Key.
     """
     repository = DataRepository(db)
     setting = repository.save_setting(
@@ -337,7 +444,7 @@ async def get_releases(db: Session = Depends(get_db)):
     }
 
 
-@app.post("/releases/update", tags=["Releases"])
+@app.post("/releases/update", tags=["Releases"], dependencies=[Depends(verify_api_key)])
 async def update_releases(
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db)
@@ -346,6 +453,8 @@ async def update_releases(
     Atualiza as datas de release do SICAR.
     
     Busca as datas mais recentes diretamente do site do SICAR.
+    
+    Requer autenticação via API Key no header X-API-Key.
     """
     def update_task():
         service = SicarService(db)
@@ -360,14 +469,18 @@ async def update_releases(
 
 # ===== Downloads Endpoints =====
 
-@app.post("/downloads/state", tags=["Downloads"], status_code=status.HTTP_202_ACCEPTED)
+@limiter.limit(f"{settings.rate_limit_per_minute_downloads}/minute")
+@app.post("/downloads/state", tags=["Downloads"], status_code=status.HTTP_202_ACCEPTED, dependencies=[Depends(verify_api_key)])
 async def download_state(
-    request: StateDownloadRequest,
+    request: Request,
+    body: StateDownloadRequest,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db)
 ):
     """
     Baixa um ou múltiplos shapefiles de polígonos de um estado.
+    
+    Requer autenticação via API Key no header X-API-Key.
     
     O download é executado em background. Use GET /downloads para monitorar o progresso.
     
@@ -378,24 +491,36 @@ async def download_state(
       * Se passar vários elementos: cria um job para cada polígono
       * Se não especificar: usa configuração padrão (AUTO_DOWNLOAD_POLYGONS)
     """
+    # Verificar limite de downloads concorrentes antes de aceitar
+    repository = DataRepository(db)
+    running_count = repository.count_running_downloads()
+    if running_count >= settings.max_concurrent_downloads:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"Limite de downloads concorrentes atingido: {running_count}/{settings.max_concurrent_downloads} em execução. Tente novamente em alguns minutos.",
+            headers={"Retry-After": "60"}  # Sugerir retry após 60 segundos
+        )
+    
     def download_task():
         service = SicarService(db)
         service.download_state(
-            state=request.state.upper(),
-            polygons=[p.upper() for p in request.polygons] if request.polygons else None
+            state=body.state.upper(),
+            polygons=[p.upper() for p in body.polygons] if body.polygons else None
         )
     
     background_tasks.add_task(download_task)
     
     return {
-        "message": f"Download do estado {request.state.upper()} iniciado em background",
-        "state": request.state.upper(),
-        "polygons": request.polygons or "padrão"
+        "message": f"Download do estado {body.state.upper()} iniciado em background",
+        "state": body.state.upper(),
+        "polygons": body.polygons or "padrão"
     }
 
 
+@limiter.limit(f"{settings.rate_limit_per_minute_read}/minute")
 @app.get("/downloads", tags=["Downloads"])
 async def list_downloads(
+    request: Request,
     status: Optional[str] = None,
     limit: int = 50,
     db: Session = Depends(get_db)
@@ -478,8 +603,10 @@ async def get_download(job_id: int, db: Session = Depends(get_db)):
 
 # ===== CAR Downloads Endpoints =====
 
+@limiter.limit(f"{settings.rate_limit_per_minute_search}/minute")
 @app.get("/search/car/{car_number}", tags=["CAR"]) # MONTAGNER
 async def search_property_by_car(
+    request: Request,
     car_number: str,
     db: Session = Depends(get_db)
 ):
@@ -514,14 +641,18 @@ async def search_property_by_car(
         )
 
 
-@app.post("/downloads/car", tags=["CAR"], status_code=status.HTTP_202_ACCEPTED) # MONTAGNER
+@limiter.limit(f"{settings.rate_limit_per_minute_downloads}/minute")
+@app.post("/downloads/car", tags=["CAR"], status_code=status.HTTP_202_ACCEPTED, dependencies=[Depends(verify_api_key)])
 async def download_by_car_number(
-    request: CARDownloadRequest,
+    request: Request,
+    body: CARDownloadRequest,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db)
 ):
     """
     Baixa shapefile de propriedade específica pelo número CAR.
+    
+    Requer autenticação via API Key no header X-API-Key.
     
     O download é executado em background. Use GET /downloads/{job_id}
     para consultar o status.
@@ -530,20 +661,30 @@ async def download_by_car_number(
     - car_number: Número do CAR
     - force: Se True, força novo download mesmo se já existe (default: False)
     """
+    # Verificar limite de downloads concorrentes antes de aceitar
+    repository = DataRepository(db)
+    running_count = repository.count_running_downloads()
+    if running_count >= settings.max_concurrent_downloads:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"Limite de downloads concorrentes atingido: {running_count}/{settings.max_concurrent_downloads} em execução. Tente novamente em alguns minutos.",
+            headers={"Retry-After": "60"}  # Sugerir retry após 60 segundos
+        )
+    
     def download_task():
         service = SicarService(db)
         result = service.download_property_by_car(
-            car_number=request.car_number,
-            force=request.force
+            car_number=body.car_number,
+            force=body.force
         )
         if result:
-            logger.info(f"Download CAR {request.car_number} concluído: Job {result.id}")
+            logger.info(f"Download CAR {body.car_number} concluído: Job {result.id}")
     
     background_tasks.add_task(download_task)
     
     return {
         "message": "Download iniciado em background",
-        "car_number": request.car_number
+        "car_number": body.car_number
     }
 
 
@@ -638,10 +779,12 @@ async def get_scheduled_jobs():
     return {"jobs": jobs}
 
 
-@app.post("/scheduler/jobs/{job_id}/run", tags=["Scheduler"])
+@app.post("/scheduler/jobs/{job_id}/run", tags=["Scheduler"], dependencies=[Depends(verify_api_key)])
 async def run_job_now(job_id: str):
     """
     Executa um job agendado imediatamente.
+    
+    Requer autenticação via API Key no header X-API-Key.
     """
     success = scheduler.run_job_now(job_id)
     
@@ -654,10 +797,12 @@ async def run_job_now(job_id: str):
     return {"message": f"Job {job_id} agendado para execução imediata"}
 
 
-@app.post("/scheduler/jobs/{job_id}/pause", tags=["Scheduler"])
+@app.post("/scheduler/jobs/{job_id}/pause", tags=["Scheduler"], dependencies=[Depends(verify_api_key)])
 async def pause_job(job_id: str, db: Session = Depends(get_db)):
     """
     Pausa um job agendado e persiste no banco.
+    
+    Requer autenticação via API Key no header X-API-Key.
     """
     success = scheduler.pause_job(job_id)
     
@@ -678,10 +823,12 @@ async def pause_job(job_id: str, db: Session = Depends(get_db)):
     return {"message": f"Job {job_id} pausado"}
 
 
-@app.post("/scheduler/jobs/{job_id}/resume", tags=["Scheduler"])
+@app.post("/scheduler/jobs/{job_id}/resume", tags=["Scheduler"], dependencies=[Depends(verify_api_key)])
 async def resume_job(job_id: str, db: Session = Depends(get_db)):
     """
     Resume um job pausado e persiste no banco.
+    
+    Requer autenticação via API Key no header X-API-Key.
     """
     success = scheduler.resume_job(job_id)
     
@@ -749,10 +896,12 @@ class RescheduleRequest(BaseModel):
         }
 
 
-@app.post("/scheduler/jobs/{job_id}/reschedule", tags=["Scheduler"])
+@app.post("/scheduler/jobs/{job_id}/reschedule", tags=["Scheduler"], dependencies=[Depends(verify_api_key)])
 async def reschedule_job_endpoint(job_id: str, request: RescheduleRequest, db: Session = Depends(get_db)):
     """
     Reagenda um job com configurações avançadas e persiste no banco.
+    
+    Requer autenticação via API Key no header X-API-Key.
     
     Tipos de agendamento:
     - daily: Execução diária em horário específico (requer hour e minute)
