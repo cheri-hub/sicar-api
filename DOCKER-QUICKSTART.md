@@ -75,8 +75,8 @@ docker-compose ps
 # Sem autenticação
 curl http://localhost:8000/health
 
-# Com autenticação
-curl -H "X-API-Key: YQpeAZkLw95FhjL9ZeFH0YLWn3fX2jJFScfBJWsJgFE" \
+# Com autenticação (substitua pela sua API_KEY)
+curl -H "X-API-Key: SUA_API_KEY_AQUI" \
      http://localhost:8000/health/disk
 ```
 
@@ -84,7 +84,7 @@ curl -H "X-API-Key: YQpeAZkLw95FhjL9ZeFH0YLWn3fX2jJFScfBJWsJgFE" \
 
 ```bash
 curl -X POST "http://localhost:8000/download" \
-     -H "X-API-Key: YQpeAZkLw95FhjL9ZeFH0YLWn3fX2jJFScfBJWsJgFE" \
+     -H "X-API-Key: SUA_API_KEY_AQUI" \
      -H "Content-Type: application/json" \
      -d '{
        "state": "SP",
