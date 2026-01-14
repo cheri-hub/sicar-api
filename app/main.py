@@ -198,6 +198,150 @@ class DownloadStatsResponse(BaseModel):
 
 # ===== Lifecycle Events =====
 
+def validate_and_show_config() -> dict:
+    """
+    Valida configurações obrigatórias e exibe status no startup.
+    
+    Returns:
+        dict com status das configurações
+    """
+    config_status = {
+        "valid": True,
+        "errors": [],
+        "warnings": [],
+        "config": {}
+    }
+    
+    # ===== CONFIGURAÇÕES OBRIGATÓRIAS =====
+    required = {
+        "DATABASE_URL": settings.database_url,
+        "SICAR_DOWNLOAD_FOLDER": settings.sicar_download_folder,
+    }
+    
+    for name, value in required.items():
+        if not value or value.strip() == "":
+            config_status["errors"].append(f"❌ {name}: NÃO CONFIGURADO (OBRIGATÓRIO)")
+            config_status["valid"] = False
+        else:
+            # Mascarar senha do banco
+            if "DATABASE_URL" in name and "@" in value:
+                masked = value.split("@")[0].rsplit(":", 1)[0] + ":***@" + value.split("@")[1]
+                config_status["config"][name] = masked
+            else:
+                config_status["config"][name] = value
+    
+    # ===== SEGURANÇA =====
+    # API_KEY
+    if not settings.api_key or settings.api_key.strip() == "":
+        config_status["warnings"].append("⚠️  API_KEY: Não configurada - API aberta sem autenticação!")
+        config_status["config"]["API_KEY"] = "NÃO CONFIGURADA (INSEGURO)"
+    else:
+        config_status["config"]["API_KEY"] = settings.api_key[:8] + "..." + settings.api_key[-4:]
+    
+    # CORS
+    if settings.cors_origins == "*":
+        config_status["warnings"].append("⚠️  CORS_ORIGINS: Usando '*' - Aceita qualquer origem")
+    config_status["config"]["CORS_ORIGINS"] = settings.cors_origins
+    
+    # IP Whitelist
+    if not settings.allowed_ips or settings.allowed_ips.strip() == "":
+        config_status["config"]["ALLOWED_IPS"] = "Todos (sem restrição)"
+    else:
+        config_status["config"]["ALLOWED_IPS"] = settings.allowed_ips
+    
+    # ===== APLICAÇÃO =====
+    config_status["config"]["APP_NAME"] = settings.app_name
+    config_status["config"]["APP_VERSION"] = settings.app_version
+    config_status["config"]["DEBUG"] = settings.debug
+    config_status["config"]["LOG_LEVEL"] = settings.log_level
+    
+    # ===== AGENDAMENTO =====
+    config_status["config"]["SCHEDULE_ENABLED"] = settings.schedule_enabled
+    if settings.schedule_enabled:
+        config_status["config"]["SCHEDULE_TIME"] = f"{settings.schedule_hour:02d}:{settings.schedule_minute:02d}"
+        config_status["config"]["AUTO_DOWNLOAD_STATES"] = settings.auto_download_states
+        config_status["config"]["AUTO_DOWNLOAD_POLYGONS"] = settings.auto_download_polygons
+    
+    # ===== RATE LIMITING =====
+    config_status["config"]["RATE_LIMIT_ENABLED"] = settings.rate_limit_enabled
+    if settings.rate_limit_enabled:
+        config_status["config"]["RATE_LIMITS"] = {
+            "downloads": f"{settings.rate_limit_per_minute_downloads}/min",
+            "search": f"{settings.rate_limit_per_minute_search}/min",
+            "read": f"{settings.rate_limit_per_minute_read}/min"
+        }
+    
+    # ===== LIMITES =====
+    config_status["config"]["MIN_DISK_SPACE_GB"] = settings.min_disk_space_gb
+    config_status["config"]["MAX_CONCURRENT_DOWNLOADS"] = settings.max_concurrent_downloads
+    
+    return config_status
+
+
+def print_startup_banner(config_status: dict):
+    """Imprime banner de startup com status das configurações."""
+    
+    print("\n" + "=" * 70)
+    print(f"  🚀 {settings.app_name} v{settings.app_version}")
+    print("=" * 70)
+    
+    # Status geral
+    if config_status["valid"] and not config_status["warnings"]:
+        print("  ✅ Todas as configurações estão válidas!")
+    elif config_status["valid"] and config_status["warnings"]:
+        print("  ⚠️  Configurações válidas, mas com avisos")
+    else:
+        print("  ❌ ERRO: Configurações obrigatórias faltando!")
+    
+    print("-" * 70)
+    
+    # Erros
+    if config_status["errors"]:
+        print("\n  🚨 ERROS:")
+        for error in config_status["errors"]:
+            print(f"     {error}")
+    
+    # Warnings
+    if config_status["warnings"]:
+        print("\n  ⚠️  AVISOS:")
+        for warning in config_status["warnings"]:
+            print(f"     {warning}")
+    
+    # Configurações
+    print("\n  📋 CONFIGURAÇÕES:")
+    print("-" * 70)
+    
+    for key, value in config_status["config"].items():
+        if isinstance(value, dict):
+            print(f"  {key}:")
+            for k, v in value.items():
+                print(f"    └─ {k}: {v}")
+        else:
+            # Formatar booleanos
+            if isinstance(value, bool):
+                value = "✅ Sim" if value else "❌ Não"
+            print(f"  {key}: {value}")
+    
+    print("-" * 70)
+    
+    # Endpoints úteis
+    print("\n  🔗 ENDPOINTS:")
+    print(f"     Health:    http://{settings.api_host}:{settings.api_port}/health")
+    print(f"     Docs:      http://{settings.api_host}:{settings.api_port}/docs")
+    print(f"     Settings:  http://{settings.api_host}:{settings.api_port}/settings")
+    
+    print("=" * 70 + "\n")
+    
+    # Log também
+    logger.info(f"Configurações carregadas: {len(config_status['config'])} itens")
+    if config_status["errors"]:
+        for error in config_status["errors"]:
+            logger.error(error)
+    if config_status["warnings"]:
+        for warning in config_status["warnings"]:
+            logger.warning(warning)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
@@ -208,6 +352,15 @@ async def lifespan(app: FastAPI):
     # Startup
     logger.info(f"Iniciando {settings.app_name} v{settings.app_version}")
     
+    # Validar e exibir configurações
+    config_status = validate_and_show_config()
+    print_startup_banner(config_status)
+    
+    # Verificar se pode continuar
+    if not config_status["valid"]:
+        logger.critical("❌ Configurações inválidas! Verifique os erros acima.")
+        # Continua mesmo assim para permitir acesso ao /health e diagnóstico
+    
     try:
         # Inicializar banco de dados
         init_db()
@@ -215,11 +368,15 @@ async def lifespan(app: FastAPI):
         # Verificar conexão
         if not check_connection():
             logger.error("Falha na conexão com banco de dados!")
+        else:
+            logger.info("✅ Conexão com banco de dados OK")
         
         # Iniciar agendador
         scheduler.start()
+        if settings.schedule_enabled:
+            logger.info(f"✅ Agendador iniciado - próxima execução: {settings.schedule_hour:02d}:{settings.schedule_minute:02d}")
         
-        logger.info("Aplicação iniciada com sucesso!")
+        logger.info("🚀 Aplicação iniciada com sucesso!")
         
     except Exception as e:
         logger.error(f"Erro no startup: {e}", exc_info=True)
