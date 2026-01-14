@@ -1,35 +1,12 @@
 import axios from 'axios'
 
 const API_BASE_URL = '/api'
-const API_KEY_STORAGE_KEY = 'sicar-api-key'
-
-// Gerenciamento de API Key
-export const getStoredApiKey = (): string | null => {
-  return localStorage.getItem(API_KEY_STORAGE_KEY)
-}
-
-export const setStoredApiKey = (apiKey: string): void => {
-  localStorage.setItem(API_KEY_STORAGE_KEY, apiKey)
-}
-
-export const clearStoredApiKey = (): void => {
-  localStorage.removeItem(API_KEY_STORAGE_KEY)
-}
 
 const api = axios.create({
   baseURL: API_BASE_URL,
   headers: {
     'Content-Type': 'application/json',
   },
-})
-
-// Interceptor para adicionar API Key automaticamente
-api.interceptors.request.use((config) => {
-  const apiKey = getStoredApiKey()
-  if (apiKey) {
-    config.headers['X-API-Key'] = apiKey
-  }
-  return config
 })
 
 export interface HealthResponse {
