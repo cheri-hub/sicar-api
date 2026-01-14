@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Activity, CheckCircle, XCircle, Database, Calendar } from 'lucide-react'
 import { getHealth, HealthResponse } from '../api'
-import { formatDateTime, formatCurrentDateTime } from '../utils/dateFormatter'
+import { formatCurrentDateTime } from '../utils/dateFormatter'
 
 export default function HealthCheck() {
   const [health, setHealth] = useState<HealthResponse | null>(null)

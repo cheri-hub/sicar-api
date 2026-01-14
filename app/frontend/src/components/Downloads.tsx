@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Download, RefreshCw, FileArchive, AlertCircle, CheckCircle, Clock, XCircle } from 'lucide-react'
+import { Download, RefreshCw, AlertCircle, CheckCircle, Clock, XCircle } from 'lucide-react'
 import { createStateDownload, getDownloads, DownloadJob } from '../api'
 import { formatDateTime } from '../utils/dateFormatter'
 
