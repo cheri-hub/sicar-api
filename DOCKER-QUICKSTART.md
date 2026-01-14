@@ -14,27 +14,35 @@ Este guia mostra como rodar a **SICAR API** em containers Docker em 3 minutos.
 
 ## 🚀 Deploy em 3 Passos
 
-### 1️⃣ Gerar API Key (Primeira Vez)
-
-```powershell
-# Windows
-python scripts/generate_api_key.py
-
-# Linux/macOS
-python3 scripts/generate_api_key.py
-```
-
-**Copie a chave gerada** e edite `.env.docker`:
+### 1️⃣ Criar arquivo de configuração
 
 ```bash
-API_KEY=<cole-a-chave-aqui>
+# Copiar template de configuração
+cp .env.template .env
+
+# Gerar API Key
+python scripts/generate_api_key.py
+# Copie a chave gerada!
+```
+
+**Edite `.env`** e configure:
+
+```bash
+# Cole a API Key gerada
+API_KEY=<sua-chave-aqui>
+
+# Troque a senha do banco (IMPORTANTE para produção!)
+POSTGRES_PASSWORD=SuaSenhaForte123
+
+# Para Docker, o host é 'db' (nome do container)
+# Isso é sobrescrito automaticamente pelo docker-compose.yml
 ```
 
 ---
 
 ### 2️⃣ Configurar Segurança (Produção)
 
-Edite [.env.docker](.env.docker) e ajuste:
+Edite [.env](.env) e ajuste:
 
 ```bash
 # CORS - Definir domínios específicos

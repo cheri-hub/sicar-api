@@ -27,7 +27,7 @@ wheels/
 .env
 .env.local
 .env.*.local
-.env.docker
+# .env.template é o template e DEVE ir pro git
 
 # IDE
 .vscode/

@@ -6,6 +6,7 @@ incluindo banco de dados, agendamento e parâmetros do SICAR.
 """
 
 from pydantic_settings import BaseSettings
+from pydantic import computed_field
 from typing import Optional
 
 
@@ -16,11 +17,27 @@ class Settings(BaseSettings):
     app_name: str = "SICAR API"
     app_version: str = "1.0.0"
     debug: bool = False
+    environment: str = "local"  # local ou docker
 
-    # Banco de Dados PostgreSQL
-    database_url: str = "postgresql+psycopg://postgres:postgres@localhost:5432/sicar_db"
-    database_pool_size: int = 5
-    database_max_overflow: int = 10
+    # Banco de Dados PostgreSQL - Variáveis Separadas
+    postgres_user: str = "postgres"
+    postgres_password: str = "postgres"
+    postgres_db: str = "sicar_db"
+    postgres_host: str = "localhost"
+    postgres_port: int = 5432
+    database_pool_size: int = 10
+    database_max_overflow: int = 20
+    
+    # DATABASE_URL legada (se fornecida, usa ela; senão, constrói)
+    database_url: Optional[str] = None
+    
+    @computed_field
+    @property
+    def db_connection_url(self) -> str:
+        """Retorna a URL de conexão do banco, construída ou fornecida."""
+        if self.database_url:
+            return self.database_url
+        return f"postgresql+psycopg://{self.postgres_user}:{self.postgres_password}@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
 
     # Configurações SICAR
     sicar_download_folder: str = "./downloads"
@@ -34,13 +51,7 @@ class Settings(BaseSettings):
     schedule_minute: int = 0
     
     # Estados e Polígonos para Download Automático
-    # Lista de estados para download (separados por vírgula)
-    # Exemplo: "SP,RJ,MG" ou "ALL" para todos
     auto_download_states: str = "SP"
-    
-    # Lista de polígonos para download (separados por vírgula)
-    # Opções: AREA_PROPERTY, APPS, NATIVE_VEGETATION, CONSOLIDATED_AREA,
-    #         AREA_FALL, HYDROGRAPHY, RESTRICTED_USE, ADMINISTRATIVE_SERVICE, LEGAL_RESERVE
     auto_download_polygons: str = "APPS,LEGAL_RESERVE"
 
     # Logging
@@ -53,23 +64,25 @@ class Settings(BaseSettings):
     api_reload: bool = False
 
     # Segurança
-    cors_origins: str = "*"  # Separados por vírgula: "http://localhost:3000,https://app.com"
-    api_key: Optional[str] = None  # Se definido, requer autenticação
-    
-    # IP Whitelist
-    allowed_ips: str = ""  # Separados por vírgula: "192.168.1.100,10.0.0.50" (vazio = aceita todos)
+    cors_origins: str = "*"
+    api_key: Optional[str] = None
+    allowed_ips: str = ""
     
     # Rate Limiting
     rate_limit_enabled: bool = True
-    rate_limit_per_minute_downloads: int = 10  # Downloads por minuto
-    rate_limit_per_minute_search: int = 20  # Buscas por minuto
-    rate_limit_per_minute_read: int = 100  # Leituras por minuto
+    rate_limit_per_minute_downloads: int = 10
+    rate_limit_per_minute_search: int = 20
+    rate_limit_per_minute_read: int = 100
     
     # Validação de Disco
-    min_disk_space_gb: int = 10  # Espaço mínimo em GB antes de bloquear downloads
+    min_disk_space_gb: int = 10
     
     # Limites de Concorrência
-    max_concurrent_downloads: int = 5  # Máximo de downloads simultâneos permitidos
+    max_concurrent_downloads: int = 5
+    
+    # PGAdmin (opcional)
+    pgadmin_default_email: str = "admin@sicar.com"
+    pgadmin_default_password: str = "admin"
 
     class Config:
         """Configuração do Pydantic Settings."""

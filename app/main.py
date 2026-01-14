@@ -214,7 +214,7 @@ def validate_and_show_config() -> dict:
     
     # ===== CONFIGURAÇÕES OBRIGATÓRIAS =====
     required = {
-        "DATABASE_URL": settings.database_url,
+        "DATABASE_URL": settings.db_connection_url,
         "SICAR_DOWNLOAD_FOLDER": settings.sicar_download_folder,
     }
     
@@ -231,6 +231,10 @@ def validate_and_show_config() -> dict:
                 config_status["config"][name] = value
     
     # ===== SEGURANÇA =====
+    # Senha do Banco
+    if settings.postgres_password == "postgres":
+        config_status["warnings"].append("⚠️  POSTGRES_PASSWORD: Usando senha padrão 'postgres' - Inseguro para produção!")
+    
     # API_KEY
     if not settings.api_key or settings.api_key.strip() == "":
         config_status["warnings"].append("⚠️  API_KEY: Não configurada - API aberta sem autenticação!")
@@ -248,6 +252,10 @@ def validate_and_show_config() -> dict:
         config_status["config"]["ALLOWED_IPS"] = "Todos (sem restrição)"
     else:
         config_status["config"]["ALLOWED_IPS"] = settings.allowed_ips
+    
+    # ===== AMBIENTE =====
+    config_status["config"]["ENVIRONMENT"] = settings.environment
+    config_status["config"]["POSTGRES_HOST"] = settings.postgres_host
     
     # ===== APLICAÇÃO =====
     config_status["config"]["APP_NAME"] = settings.app_name

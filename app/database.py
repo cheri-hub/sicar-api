@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 # Criar engine do SQLAlchemy
 engine = create_engine(
-    settings.database_url,
+    settings.db_connection_url,
     pool_pre_ping=True,  # Verifica conexões antes de usar
     pool_size=settings.database_pool_size,
     max_overflow=settings.database_max_overflow,

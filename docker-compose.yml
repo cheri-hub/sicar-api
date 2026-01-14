@@ -5,16 +5,18 @@ services:
   db:
     image: postgres:15-alpine
     container_name: sicar_postgres
+    env_file:
+      - .env
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: sicar_db
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-sicar_db}
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -28,9 +30,14 @@ services:
       dockerfile: Dockerfile
     container_name: sicar_api
     ports:
-      - "8000:8000"
+      - "${API_PORT:-8000}:8000"
     env_file:
-      - .env.docker
+      - .env
+    environment:
+      # Sobrescrever para Docker (conecta no container 'db')
+      POSTGRES_HOST: db
+      SICAR_DOWNLOAD_FOLDER: /app/downloads
+      LOG_FILE: /app/logs/sicar_api.log
     volumes:
       # Mapear pasta de downloads para persistência
       - ./downloads:/app/downloads
@@ -54,9 +61,11 @@ services:
   pgadmin:
     image: dpage/pgadmin4:latest
     container_name: sicar_pgadmin
+    env_file:
+      - .env
     environment:
-      PGADMIN_DEFAULT_EMAIL: admin@sicar.com
-      PGADMIN_DEFAULT_PASSWORD: admin
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL:-admin@sicar.com}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD:-admin}
     ports:
       - "5050:80"
     depends_on:
