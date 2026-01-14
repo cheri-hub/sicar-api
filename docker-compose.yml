@@ -75,6 +75,20 @@ services:
     profiles:
       - tools  # Só inicia se especificar: docker-compose --profile tools up
 
+  # Frontend React
+  frontend:
+    build:
+      context: ./app/frontend
+      dockerfile: Dockerfile
+    container_name: sicar_frontend
+    ports:
+      - "${FRONTEND_PORT:-3000}:80"
+    depends_on:
+      - api
+    restart: unless-stopped
+    networks:
+      - sicar_network
+
 volumes:
   postgres_data:
     driver: local

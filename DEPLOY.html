@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <title>&#x1f680; Deploy SICAR API</title>
+            <style>
+/* From extension vscode.github */
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
+.vscode-dark img[src$=\#gh-light-mode-only],
+.vscode-light img[src$=\#gh-dark-mode-only],
+.vscode-high-contrast:not(.vscode-high-contrast-light) img[src$=\#gh-light-mode-only],
+.vscode-high-contrast-light img[src$=\#gh-dark-mode-only] {
+	display: none;
+}
+
+</style>
+            <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex/dist/katex.min.css">
+<link href="https://cdn.jsdelivr.net/npm/katex-copytex@latest/dist/katex-copytex.min.css" rel="stylesheet" type="text/css">
+        <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/Microsoft/vscode/extensions/markdown-language-features/media/markdown.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/Microsoft/vscode/extensions/markdown-language-features/media/highlight.css">
+<style>
+            body {
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe WPC', 'Segoe UI', system-ui, 'Ubuntu', 'Droid Sans', sans-serif;
+                font-size: 14px;
+                line-height: 1.6;
+            }
+        </style>
+        <style>
+.task-list-item {
+    list-style-type: none;
+}
+
+.task-list-item-checkbox {
+    margin-left: -20px;
+    vertical-align: middle;
+    pointer-events: none;
+}
+</style>
+<style>
+:root {
+  --color-note: #0969da;
+  --color-tip: #1a7f37;
+  --color-warning: #9a6700;
+  --color-severe: #bc4c00;
+  --color-caution: #d1242f;
+  --color-important: #8250df;
+}
+
+</style>
+<style>
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-note: #2f81f7;
+    --color-tip: #3fb950;
+    --color-warning: #d29922;
+    --color-severe: #db6d28;
+    --color-caution: #f85149;
+    --color-important: #a371f7;
+  }
+}
+
+</style>
+<style>
+.markdown-alert {
+  padding: 0.5rem 1rem;
+  margin-bottom: 16px;
+  color: inherit;
+  border-left: .25em solid #888;
+}
+
+.markdown-alert>:first-child {
+  margin-top: 0
+}
+
+.markdown-alert>:last-child {
+  margin-bottom: 0
+}
+
+.markdown-alert .markdown-alert-title {
+  display: flex;
+  font-weight: 500;
+  align-items: center;
+  line-height: 1
+}
+
+.markdown-alert .markdown-alert-title .octicon {
+  margin-right: 0.5rem;
+  display: inline-block;
+  overflow: visible !important;
+  vertical-align: text-bottom;
+  fill: currentColor;
+}
+
+.markdown-alert.markdown-alert-note {
+  border-left-color: var(--color-note);
+}
+
+.markdown-alert.markdown-alert-note .markdown-alert-title {
+  color: var(--color-note);
+}
+
+.markdown-alert.markdown-alert-important {
+  border-left-color: var(--color-important);
+}
+
+.markdown-alert.markdown-alert-important .markdown-alert-title {
+  color: var(--color-important);
+}
+
+.markdown-alert.markdown-alert-warning {
+  border-left-color: var(--color-warning);
+}
+
+.markdown-alert.markdown-alert-warning .markdown-alert-title {
+  color: var(--color-warning);
+}
+
+.markdown-alert.markdown-alert-tip {
+  border-left-color: var(--color-tip);
+}
+
+.markdown-alert.markdown-alert-tip .markdown-alert-title {
+  color: var(--color-tip);
+}
+
+.markdown-alert.markdown-alert-caution {
+  border-left-color: var(--color-caution);
+}
+
+.markdown-alert.markdown-alert-caution .markdown-alert-title {
+  color: var(--color-caution);
+}
+
+</style>
+        
+        </head>
+        <body class="vscode-body vscode-light">
+            <h1 id="-deploy-sicar-api">🚀 Deploy SICAR API</h1>
+<p>Guia rápido para rodar a API em Docker.</p>
+<hr>
+<h2 id="1-primeira-instalação">1. Primeira Instalação</h2>
+<pre><code class="language-bash"><span class="hljs-comment"># 1. Criar pasta e arquivo de configuração</span>
+<span class="hljs-built_in">mkdir</span> sicarapi
+<span class="hljs-built_in">cd</span> sicarapi
+
+<span class="hljs-comment"># 2. Criar .env com configurações</span>
+<span class="hljs-built_in">cat</span> &gt; .<span class="hljs-built_in">env</span> &lt;&lt; <span class="hljs-string">&#x27;EOF&#x27;</span>
+<span class="hljs-comment"># Banco de Dados</span>
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=SuaSenhaForte123
+POSTGRES_DB=sicar_db
+POSTGRES_HOST=db
+POSTGRES_PORT=5432
+
+<span class="hljs-comment"># Segurança</span>
+API_KEY=GERAR_COM_COMANDO_ABAIXO
+CORS_ORIGINS=*
+ALLOWED_IPS=
+
+<span class="hljs-comment"># Agendamento</span>
+SCHEDULE_ENABLED=True
+SCHEDULE_HOUR=2
+AUTO_DOWNLOAD_STATES=SP
+AUTO_DOWNLOAD_POLYGONS=APPS,LEGAL_RESERVE
+
+<span class="hljs-comment"># Limites</span>
+RATE_LIMIT_ENABLED=True
+MIN_DISK_SPACE_GB=10
+MAX_CONCURRENT_DOWNLOADS=5
+EOF
+
+<span class="hljs-comment"># 3. Gerar API Key</span>
+python3 -c <span class="hljs-string">&quot;import secrets; print(&#x27;API_KEY=&#x27; + secrets.token_urlsafe(32))&quot;</span>
+<span class="hljs-comment"># Copie o resultado e cole no .env</span>
+
+<span class="hljs-comment"># 4. Criar docker-compose.yml</span>
+<span class="hljs-built_in">cat</span> &gt; docker-compose.yml &lt;&lt; <span class="hljs-string">&#x27;EOF&#x27;</span>
+version: <span class="hljs-string">&#x27;3.8&#x27;</span>
+
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: sicar_postgres
+    environment:
+      POSTGRES_USER: <span class="hljs-variable">${POSTGRES_USER:-postgres}</span>
+      POSTGRES_PASSWORD: <span class="hljs-variable">${POSTGRES_PASSWORD:-postgres}</span>
+      POSTGRES_DB: <span class="hljs-variable">${POSTGRES_DB:-sicar_db}</span>
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  api:
+    image: ghcr.io/cheri-hub/sicar-api:latest
+    container_name: sicar_api
+    ports:
+      - <span class="hljs-string">&quot;8000:8000&quot;</span>
+    env_file:
+      - .<span class="hljs-built_in">env</span>
+    environment:
+      POSTGRES_HOST: db
+      SICAR_DOWNLOAD_FOLDER: /app/downloads
+      LOG_FILE: /app/logs/sicar_api.log
+    volumes:
+      - ./downloads:/app/downloads
+      - ./logs:/app/logs
+    depends_on:
+      - db
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+EOF
+
+<span class="hljs-comment"># 5. Criar pastas</span>
+<span class="hljs-built_in">mkdir</span> -p downloads logs
+
+<span class="hljs-comment"># 6. Subir</span>
+docker-compose up -d
+</code></pre>
+<hr>
+<h2 id="2-atualizar-para-última-versão">2. Atualizar para Última Versão</h2>
+<pre><code class="language-bash"><span class="hljs-built_in">cd</span> sicarapi
+
+<span class="hljs-comment"># Baixar nova imagem</span>
+docker-compose pull
+
+<span class="hljs-comment"># Reiniciar com nova versão</span>
+docker-compose up -d
+
+<span class="hljs-comment"># Ver logs</span>
+docker-compose logs -f api
+</code></pre>
+<hr>
+<h2 id="3-comandos-úteis">3. Comandos Úteis</h2>
+<pre><code class="language-bash"><span class="hljs-comment"># Ver status</span>
+docker-compose ps
+
+<span class="hljs-comment"># Ver logs</span>
+docker-compose logs -f api
+
+<span class="hljs-comment"># Reiniciar</span>
+docker-compose restart api
+
+<span class="hljs-comment"># Parar tudo</span>
+docker-compose down
+
+<span class="hljs-comment"># Parar e apagar banco (CUIDADO!)</span>
+docker-compose down -v
+</code></pre>
+<hr>
+<h2 id="4-testar">4. Testar</h2>
+<pre><code class="language-bash"><span class="hljs-comment"># Health check</span>
+curl http://localhost:8000/health
+
+<span class="hljs-comment"># Com autenticação</span>
+curl -H <span class="hljs-string">&quot;X-API-Key: SUA_API_KEY&quot;</span> http://localhost:8000/health/disk
+
+<span class="hljs-comment"># Docs interativa</span>
+<span class="hljs-comment"># Abra no navegador: http://localhost:8000/docs</span>
+</code></pre>
+<hr>
+<h2 id="5-versões-disponíveis">5. Versões Disponíveis</h2>
+<pre><code class="language-bash"><span class="hljs-comment"># Última versão estável</span>
+ghcr.io/cheri-hub/sicar-api:latest
+
+<span class="hljs-comment"># Versão específica</span>
+ghcr.io/cheri-hub/sicar-api:1.1.1
+ghcr.io/cheri-hub/sicar-api:1.1.0
+ghcr.io/cheri-hub/sicar-api:1.0.0
+</code></pre>
+<hr>
+<h2 id="6-cicd---fluxo-de-desenvolvimento">6. CI/CD - Fluxo de Desenvolvimento</h2>
+<h3 id="como-funciona">Como funciona</h3>
+<p>O projeto usa <strong>GitHub Actions</strong> com dois workflows separados:</p>
+<table>
+<thead>
+<tr>
+<th>Workflow</th>
+<th>Trigger</th>
+<th>O que faz</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>CI</strong></td>
+<td>Push/PR em qualquer branch</td>
+<td>Roda testes e lint</td>
+</tr>
+<tr>
+<td><strong>Docker Publish</strong></td>
+<td>Push de tag <code>v*</code></td>
+<td>Build e publica imagem no <a href="http://ghcr.io">ghcr.io</a></td>
+</tr>
+</tbody>
+</table>
+<h3 id="fluxo-para-nova-versão">Fluxo para nova versão</h3>
+<pre><code class="language-bash"><span class="hljs-comment"># 1. Fazer alterações no código</span>
+git add .
+git commit -m <span class="hljs-string">&quot;feat: nova funcionalidade&quot;</span>
+git push origin main
+
+<span class="hljs-comment"># O CI roda automaticamente (testes + lint)</span>
+<span class="hljs-comment"># Aguarde o ✅ verde no GitHub</span>
+
+<span class="hljs-comment"># 2. Quando estiver pronto para release, criar tag</span>
+git tag v1.2.0
+git push origin v1.2.0
+
+<span class="hljs-comment"># O Docker Publish roda automaticamente:</span>
+<span class="hljs-comment"># - Build da imagem</span>
+<span class="hljs-comment"># - Push para ghcr.io/cheri-hub/sicar-api:1.2.0</span>
+<span class="hljs-comment"># - Atualiza ghcr.io/cheri-hub/sicar-api:latest</span>
+</code></pre>
+<h3 id="verificar-status">Verificar status</h3>
+<ul>
+<li><strong>CI</strong>: <a href="https://github.com/cheri-hub/sicar-api/actions/workflows/ci.yml">https://github.com/cheri-hub/sicar-api/actions/workflows/ci.yml</a></li>
+<li><strong>Docker</strong>: <a href="https://github.com/cheri-hub/sicar-api/actions/workflows/docker-publish.yml">https://github.com/cheri-hub/sicar-api/actions/workflows/docker-publish.yml</a></li>
+<li><strong>Imagens</strong>: <a href="https://github.com/cheri-hub/sicar-api/pkgs/container/sicar-api">https://github.com/cheri-hub/sicar-api/pkgs/container/sicar-api</a></li>
+</ul>
+<h3 id="convenção-de-versionamento">Convenção de versionamento</h3>
+<pre><code>v1.2.3
+│ │ │
+│ │ └── Patch: correções de bugs
+│ └──── Minor: novas features (compatíveis)
+└────── Major: breaking changes
+</code></pre>
+<hr>
+<h2 id="7-checklist-produção">7. Checklist Produção</h2>
+<ul class="contains-task-list">
+<li class="task-list-item enabled"><input class="task-list-item-checkbox"type="checkbox"> <code>POSTGRES_PASSWORD</code> alterada (não usar <code>postgres</code>)</li>
+<li class="task-list-item enabled"><input class="task-list-item-checkbox"type="checkbox"> <code>API_KEY</code> gerada e configurada</li>
+<li class="task-list-item enabled"><input class="task-list-item-checkbox"type="checkbox"> <code>CORS_ORIGINS</code> definido (não usar <code>*</code> em prod)</li>
+<li class="task-list-item enabled"><input class="task-list-item-checkbox"type="checkbox"> Firewall: só porta 8000 (ou 80/443 com nginx)</li>
+<li class="task-list-item enabled"><input class="task-list-item-checkbox"type="checkbox"> Backup do banco configurado</li>
+<li class="task-list-item enabled"><input class="task-list-item-checkbox"type="checkbox"> SSL/HTTPS configurado (nginx)</li>
+</ul>
+
+            <script async src="https://cdn.jsdelivr.net/npm/katex-copytex@latest/dist/katex-copytex.min.js"></script>
+            
+        </body>
+        </html>

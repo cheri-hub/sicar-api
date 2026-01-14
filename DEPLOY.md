@@ -75,6 +75,15 @@ services:
       - db
     restart: unless-stopped
 
+  frontend:
+    image: ghcr.io/cheri-hub/sicar-frontend:latest
+    container_name: sicar_frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - api
+    restart: unless-stopped
+
 volumes:
   postgres_data:
 EOF
@@ -129,13 +138,16 @@ docker-compose down -v
 ## 4. Testar
 
 ```bash
-# Health check
+# Health check API
 curl http://localhost:8000/health
 
 # Com autenticação
 curl -H "X-API-Key: SUA_API_KEY" http://localhost:8000/health/disk
 
-# Docs interativa
+# Frontend
+# Abra no navegador: http://localhost:3000
+
+# Docs interativa da API
 # Abra no navegador: http://localhost:8000/docs
 ```
 
@@ -144,8 +156,11 @@ curl -H "X-API-Key: SUA_API_KEY" http://localhost:8000/health/disk
 ## 5. Versões Disponíveis
 
 ```bash
-# Última versão estável
+# API - Última versão estável
 ghcr.io/cheri-hub/sicar-api:latest
+
+# Frontend - Última versão estável
+ghcr.io/cheri-hub/sicar-frontend:latest
 
 # Versão específica
 ghcr.io/cheri-hub/sicar-api:1.1.1
