@@ -100,8 +100,13 @@ class TestHealthEndpoints:
 class TestReleasesEndpoints:
     """Testes para endpoints de releases."""
     
-    def test_get_releases_endpoint_existe(self, client):
+    @patch('app.main.get_db')
+    def test_get_releases_endpoint_existe(self, mock_get_db, client):
         """GET /releases deve existir e responder."""
+        # Mock do banco de dados
+        mock_db = Mock()
+        mock_get_db.return_value = mock_db
+        
         response = client.get("/releases")
         
         # Endpoint existe (não deve retornar 404)
@@ -115,8 +120,13 @@ class TestReleasesEndpoints:
 class TestSettingsEndpoints:
     """Testes para endpoints de configurações."""
     
-    def test_get_settings_endpoint_existe(self, client):
+    @patch('app.main.get_db')
+    def test_get_settings_endpoint_existe(self, mock_get_db, client):
         """GET /settings deve existir e responder."""
+        # Mock do banco de dados
+        mock_db = Mock()
+        mock_get_db.return_value = mock_db
+        
         response = client.get("/settings")
         
         # Endpoint existe
@@ -130,8 +140,13 @@ class TestSettingsEndpoints:
 class TestDownloadsListEndpoints:
     """Testes para endpoints de listagem de downloads."""
     
-    def test_downloads_endpoint_estrutura(self, client):
+    @patch('app.main.get_db')
+    def test_downloads_endpoint_estrutura(self, mock_get_db, client):
         """Testa que endpoints de downloads existem ou retornam erro apropriado."""
+        # Mock do banco de dados
+        mock_db = Mock()
+        mock_get_db.return_value = mock_db
+        
         # Teste simples - verifica que não quebra o servidor
         response = client.get("/downloads")
         # Pode ser 401 (precisa auth), 404 (não existe), ou outro

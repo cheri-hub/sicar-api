@@ -93,8 +93,15 @@ class TestAPIKeyAuthentication:
             # Deve aceitar (202) ou retornar erro de validação (não 401)
             assert response.status_code != 401
     
-    def test_endpoint_publico_nao_requer_api_key(self, client):
+    @patch('app.main.check_connection')
+    @patch('app.main.scheduler')
+    def test_endpoint_publico_nao_requer_api_key(self, mock_scheduler, mock_check_connection, client):
         """Endpoints públicos não devem requerer API Key."""
+        # Mock banco de dados saudável e scheduler rodando
+        mock_check_connection.return_value = True
+        mock_scheduler.scheduler.running = True
+        mock_scheduler.scheduler.get_jobs.return_value = []
+        
         # GET /health é público
         response = client.get("/health")
         assert response.status_code == 200
