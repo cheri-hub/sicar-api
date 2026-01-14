@@ -13,8 +13,6 @@ from pathlib import Path
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from app.config import settings
-
 
 # Configurar logger específico para audit
 audit_logger = logging.getLogger("audit")

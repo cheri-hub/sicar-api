@@ -6,7 +6,6 @@ incluindo downloads, parsing de dados e persistência no banco.
 """
 
 import os
-import zipfile
 import logging
 import shutil
 from pathlib import Path
@@ -34,7 +33,7 @@ except ImportError:
     pass
 
 from app.config import settings
-from app.models import StateRelease, DownloadJob, PropertyData
+from app.models import DownloadJob
 from app.repositories.data_repository import DataRepository
 
 logger = logging.getLogger(__name__)
@@ -311,10 +310,9 @@ class SicarService:
 
             # Atualizar datas de release
             try:
-                release_dates = self.get_and_save_release_dates()
+                self.get_and_save_release_dates()
             except Exception as e:
                 logger.error(f"Erro ao atualizar datas de release: {e}")
-                release_dates = {}
 
             # Determinar estados para download
             states_config = settings.auto_download_states.strip().upper()

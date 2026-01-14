@@ -6,7 +6,6 @@ e consultar dados armazenados no PostgreSQL.
 """
 
 import logging
-import json
 from typing import List, Optional, Any
 from contextlib import asynccontextmanager
 from datetime import datetime
@@ -17,7 +16,6 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.requests import Request
 from starlette.responses import Response
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
@@ -29,7 +27,6 @@ from app.database import get_db, init_db, check_connection
 from app.scheduler import scheduler
 from app.services.sicar_service import SicarService
 from app.repositories.data_repository import DataRepository
-from app.models import DownloadJob, StateRelease
 from app.auth import verify_api_key
 from app.audit_logging import AuditLoggingMiddleware
 
@@ -464,7 +461,7 @@ async def health_check(db: Session = Depends(get_db)):
     scheduler_status = "running" if scheduler.scheduler.running else "stopped"
     
     # Contar jobs ativos (não pausados)
-    active_jobs = sum(1 for job in scheduler.scheduler.get_jobs() if not job.next_run_time is None)
+    active_jobs = sum(1 for job in scheduler.scheduler.get_jobs() if job.next_run_time is not None)
     
     overall_status = "healthy" if (db_status == "healthy" and scheduler_status == "running") else "unhealthy"
     

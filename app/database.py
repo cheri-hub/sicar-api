@@ -7,7 +7,6 @@ sessões de banco de dados para a aplicação.
 
 from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import sessionmaker, Session
-from sqlalchemy.pool import NullPool
 from app.config import settings
 from app.models import Base
 import logging

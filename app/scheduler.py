@@ -11,12 +11,12 @@ from datetime import datetime
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.events import EVENT_JOB_EXECUTED, EVENT_JOB_ERROR
-from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.database import SessionLocal
 from app.services.sicar_service import SicarService
 from app.repositories.data_repository import DataRepository
+from app.models import JobConfiguration
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +62,6 @@ class TaskScheduler:
         db = SessionLocal()
         try:
             from app.repositories.data_repository import DataRepository
-            from app.models import JobConfiguration
             
             repository = DataRepository(db)
             job_configs = repository.get_all_job_configs()
@@ -320,7 +319,6 @@ class TaskScheduler:
             try:
                 db = SessionLocal()
                 from app.repositories.data_repository import DataRepository
-                from app.models import JobConfiguration
                 repository = DataRepository(db)
                 config = repository.get_job_config(job.id)
                 if config:

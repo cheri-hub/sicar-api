@@ -4,7 +4,6 @@ Módulo de autenticação e autorização.
 Implementa validação de API Key para proteger endpoints sensíveis.
 """
 
-import os
 import secrets
 from typing import Optional
 from fastapi import HTTPException, Security, status

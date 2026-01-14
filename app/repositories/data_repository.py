@@ -7,11 +7,11 @@ aos dados do SICAR.
 
 import logging
 from typing import List, Optional, Dict, Any
-from datetime import datetime, timedelta
+from datetime import datetime
 from sqlalchemy.orm import Session
 from sqlalchemy import func, desc
 
-from app.models import StateRelease, DownloadJob, PropertyData, ScheduledTask
+from app.models import StateRelease, DownloadJob, PropertyData, ScheduledTask, JobConfiguration, AppSettings
 
 logger = logging.getLogger(__name__)
 
@@ -228,9 +228,6 @@ class DataRepository:
         Returns:
             Dicionário {state: DownloadJob} com último download por estado
         """
-        from sqlalchemy import distinct
-        from sqlalchemy.sql import text
-        
         # Subquery para encontrar a data mais recente por estado
         subquery = self.db.query(
             DownloadJob.state,
@@ -493,7 +490,6 @@ class DataRepository:
         Returns:
             JobConfiguration ou None
         """
-        from app.models import JobConfiguration
         return self.db.query(JobConfiguration).filter(
             JobConfiguration.job_id == job_id
         ).first()
@@ -505,7 +501,6 @@ class DataRepository:
         Returns:
             Lista de JobConfiguration
         """
-        from app.models import JobConfiguration
         return self.db.query(JobConfiguration).all()
 
     def save_job_config(
@@ -575,7 +570,6 @@ class DataRepository:
         Returns:
             AppSettings ou None
         """
-        from app.models import AppSettings
         return self.db.query(AppSettings).filter(
             AppSettings.key == key
         ).first()
@@ -587,7 +581,6 @@ class DataRepository:
         Returns:
             Dicionário {key: value}
         """
-        from app.models import AppSettings
         settings = self.db.query(AppSettings).all()
         return {s.key: s.value for s in settings}
 
@@ -603,8 +596,6 @@ class DataRepository:
         Returns:
             AppSettings salvo
         """
-        from app.models import AppSettings
-        
         existing = self.get_setting(key)
         
         if existing:
