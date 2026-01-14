@@ -2,17 +2,15 @@
 # Docker Publish - GitHub Container Registry
 # ===================================================================
 # Este workflow faz build e push das imagens para ghcr.io
-# Executa em releases ou tags de versão
+# Executa automaticamente em push na main
 # ===================================================================
 
 name: Docker Publish
 
 on:
   push:
-    tags:
-      - 'v*'  # v1.0.0, v1.2.3, etc
-  release:
-    types: [published]
+    branches:
+      - main
   workflow_dispatch:  # Permite executar manualmente
 
 env:
