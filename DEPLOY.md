@@ -155,7 +155,57 @@ ghcr.io/cheri-hub/sicar-api:1.0.0
 
 ---
 
-## 6. Checklist Produção
+## 6. CI/CD - Fluxo de Desenvolvimento
+
+### Como funciona
+
+O projeto usa **GitHub Actions** com dois workflows separados:
+
+| Workflow | Trigger | O que faz |
+|----------|---------|-----------|
+| **CI** | Push/PR em qualquer branch | Roda testes e lint |
+| **Docker Publish** | Push de tag `v*` | Build e publica imagem no ghcr.io |
+
+### Fluxo para nova versão
+
+```bash
+# 1. Fazer alterações no código
+git add .
+git commit -m "feat: nova funcionalidade"
+git push origin main
+
+# O CI roda automaticamente (testes + lint)
+# Aguarde o ✅ verde no GitHub
+
+# 2. Quando estiver pronto para release, criar tag
+git tag v1.2.0
+git push origin v1.2.0
+
+# O Docker Publish roda automaticamente:
+# - Build da imagem
+# - Push para ghcr.io/cheri-hub/sicar-api:1.2.0
+# - Atualiza ghcr.io/cheri-hub/sicar-api:latest
+```
+
+### Verificar status
+
+- **CI**: https://github.com/cheri-hub/sicar-api/actions/workflows/ci.yml
+- **Docker**: https://github.com/cheri-hub/sicar-api/actions/workflows/docker-publish.yml
+- **Imagens**: https://github.com/cheri-hub/sicar-api/pkgs/container/sicar-api
+
+### Convenção de versionamento
+
+```
+v1.2.3
+│ │ │
+│ │ └── Patch: correções de bugs
+│ └──── Minor: novas features (compatíveis)
+└────── Major: breaking changes
+```
+
+---
+
+## 7. Checklist Produção
 
 - [ ] `POSTGRES_PASSWORD` alterada (não usar `postgres`)
 - [ ] `API_KEY` gerada e configurada
