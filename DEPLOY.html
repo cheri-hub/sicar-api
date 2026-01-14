@@ -211,6 +211,15 @@ services:
       - db
     restart: unless-stopped
 
+  frontend:
+    image: ghcr.io/cheri-hub/sicar-frontend:latest
+    container_name: sicar_frontend
+    ports:
+      - <span class="hljs-string">&quot;3000:80&quot;</span>
+    depends_on:
+      - api
+    restart: unless-stopped
+
 volumes:
   postgres_data:
 EOF
@@ -253,19 +262,25 @@ docker-compose down -v
 </code></pre>
 <hr>
 <h2 id="4-testar">4. Testar</h2>
-<pre><code class="language-bash"><span class="hljs-comment"># Health check</span>
+<pre><code class="language-bash"><span class="hljs-comment"># Health check API</span>
 curl http://localhost:8000/health
 
 <span class="hljs-comment"># Com autenticação</span>
 curl -H <span class="hljs-string">&quot;X-API-Key: SUA_API_KEY&quot;</span> http://localhost:8000/health/disk
 
-<span class="hljs-comment"># Docs interativa</span>
+<span class="hljs-comment"># Frontend</span>
+<span class="hljs-comment"># Abra no navegador: http://localhost:3000</span>
+
+<span class="hljs-comment"># Docs interativa da API</span>
 <span class="hljs-comment"># Abra no navegador: http://localhost:8000/docs</span>
 </code></pre>
 <hr>
 <h2 id="5-versões-disponíveis">5. Versões Disponíveis</h2>
-<pre><code class="language-bash"><span class="hljs-comment"># Última versão estável</span>
+<pre><code class="language-bash"><span class="hljs-comment"># API - Última versão estável</span>
 ghcr.io/cheri-hub/sicar-api:latest
+
+<span class="hljs-comment"># Frontend - Última versão estável</span>
+ghcr.io/cheri-hub/sicar-frontend:latest
 
 <span class="hljs-comment"># Versão específica</span>
 ghcr.io/cheri-hub/sicar-api:1.1.1
