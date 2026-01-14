@@ -72,9 +72,14 @@ class TestHealthEndpoints:
         # Verifica que retorna informações sobre saúde
         assert data["status"] in ["healthy", "unhealthy"]
     
+    @patch('app.main.get_db')
     @patch('app.services.sicar_service.shutil.disk_usage')
-    def test_health_disk_retorna_informacoes_disco(self, mock_disk_usage, client):
+    def test_health_disk_retorna_informacoes_disco(self, mock_disk_usage, mock_get_db, client):
         """GET /health/disk deve retornar informações de disco."""
+        # Mock do banco de dados
+        mock_db = Mock()
+        mock_get_db.return_value = mock_db
+        
         mock_disk_usage.return_value = Mock(
             total=1000 * 1024**3,
             used=400 * 1024**3,

@@ -316,11 +316,16 @@ class TestDiskValidation:
             # Deve retornar erro (500 ou 400) indicando espaço insuficiente
             assert response.status_code >= 400
     
+    @patch('app.main.get_db')
     @patch('app.services.sicar_service.shutil.disk_usage')
     def test_health_disk_retorna_informacoes_corretas(
-        self, mock_disk_usage, client
+        self, mock_disk_usage, mock_get_db, client
     ):
         """Endpoint /health/disk deve retornar informações corretas."""
+        # Mock do banco de dados
+        mock_db = Mock()
+        mock_get_db.return_value = mock_db
+        
         mock_disk_usage.return_value = Mock(
             total=500 * 1024**3,  # 500GB
             used=250 * 1024**3,   # 250GB
