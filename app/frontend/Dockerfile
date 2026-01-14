@@ -17,14 +17,14 @@ FROM nginx:alpine
 # Copiar build do React
 COPY --from=build /app/dist /usr/share/nginx/html
 
-# Copiar configuração customizada do nginx (como template)
-COPY nginx.conf /etc/nginx/templates/default.conf.template
+# Copiar configuração customizada do nginx
+COPY nginx.conf /etc/nginx/conf.d/default.conf.template
 
-# Especificar quais variáveis o envsubst deve substituir (evita substituir variáveis do nginx)
-ENV NGINX_ENVSUBST_OUTPUT_DIR=/etc/nginx/conf.d
-ENV NGINX_ENVSUBST_TEMPLATE_SUFFIX=.template
-ENV NGINX_ENVSUBST_FILTER=API_KEY
+# Script para substituir variáveis de ambiente e iniciar nginx
+COPY docker-entrypoint.sh /docker-entrypoint-custom.sh
+RUN chmod +x /docker-entrypoint-custom.sh
 
 EXPOSE 80
 
+ENTRYPOINT ["/docker-entrypoint-custom.sh"]
 CMD ["nginx", "-g", "daemon off;"]
