@@ -590,6 +590,8 @@ class SicarService:
         """
         from SICAR import State, Polygon
         import io
+        import time
+        import random
         
         logger.info(f"Iniciando download streaming: {state} - {polygon}")
         
@@ -597,7 +599,8 @@ class SicarService:
         state_enum = State[state.upper()]
         polygon_enum = Polygon[polygon.upper()]
         
-        max_retries = settings.sicar_max_retries
+        # Usar mais tentativas para streaming (25 como o método original do SICAR)
+        max_retries = 25
         retry_count = 0
         last_error = None
         
@@ -608,10 +611,11 @@ class SicarService:
                 
                 if len(captcha) != 5:
                     retry_count += 1
-                    logger.debug(f"Captcha inválido: {captcha}")
+                    logger.debug(f"[{retry_count:02d}] Captcha inválido (tamanho {len(captcha)}): '{captcha}'")
+                    time.sleep(random.random() + random.random())
                     continue
                 
-                logger.info(f"Tentativa {retry_count + 1}/{max_retries} com captcha: {captcha}")
+                logger.info(f"[{retry_count + 1:02d}/{max_retries}] Tentando com captcha: {captcha}")
                 
                 # Fazer download para bytes
                 from urllib.parse import urlencode
@@ -623,15 +627,25 @@ class SicarService:
                     "ReCaptcha": captcha
                 })
                 
-                with self.sicar._session.stream("GET", f"{self.sicar._DOWNLOAD_BASE}?{query}") as response:
-                    if response.status_code != httpx.codes.OK:
-                        raise Exception(f"HTTP {response.status_code}")
-                    
+                url = f"{self.sicar._DOWNLOAD_BASE}?{query}"
+                logger.debug(f"URL de download: {url}")
+                
+                with self.sicar._session.stream("GET", url) as response:
+                    status_code = response.status_code
                     content_type = response.headers.get("Content-Type", "")
                     content_length = int(response.headers.get("Content-Length", 0))
                     
-                    if content_length == 0 or not content_type.startswith("application/zip"):
-                        raise Exception("Resposta não é um arquivo ZIP válido")
+                    logger.debug(f"Response: status={status_code}, content_type={content_type}, length={content_length}")
+                    
+                    if status_code != httpx.codes.OK:
+                        raise Exception(f"HTTP {status_code}")
+                    
+                    # Verificar se é um ZIP válido
+                    if content_length == 0:
+                        raise Exception(f"Content-Length é 0 (captcha provavelmente incorreto)")
+                    
+                    if not content_type.startswith("application/zip"):
+                        raise Exception(f"Content-Type inválido: {content_type} (esperado application/zip)")
                     
                     # Ler todos os bytes
                     buffer = io.BytesIO()
@@ -647,7 +661,8 @@ class SicarService:
             except Exception as e:
                 retry_count += 1
                 last_error = e
-                logger.warning(f"Erro na tentativa {retry_count}: {e}")
+                logger.warning(f"[{retry_count:02d}] Erro: {e}")
+                time.sleep(random.random() + random.random())
                 
                 import time
                 import random
@@ -675,6 +690,8 @@ class SicarService:
             Exception: Se o download falhar
         """
         import io
+        import time
+        import random
         
         logger.info(f"Iniciando download streaming CAR: {car_number}")
         
@@ -687,7 +704,8 @@ class SicarService:
         
         logger.info(f"Internal ID encontrado: {internal_id}")
         
-        max_retries = settings.sicar_max_retries
+        # Usar mais tentativas (25 como o método original do SICAR)
+        max_retries = 25
         retry_count = 0
         last_error = None
         
@@ -698,26 +716,32 @@ class SicarService:
                 
                 if len(captcha) != 5:
                     retry_count += 1
-                    logger.debug(f"Captcha inválido: {captcha}")
+                    logger.debug(f"[{retry_count:02d}] Captcha inválido (tamanho {len(captcha)}): '{captcha}'")
+                    time.sleep(random.random() + random.random())
                     continue
                 
-                logger.info(f"Tentativa {retry_count + 1}/{max_retries} com captcha: {captcha}")
+                logger.info(f"[{retry_count + 1:02d}/{max_retries}] Tentando com captcha: {captcha}")
                 
                 # Fazer download para bytes
                 import httpx
                 
                 download_url = f"{self.sicar._BASE}/imoveis/exportShapeFile?idImovel={internal_id}&ReCaptcha={captcha}"
+                logger.debug(f"URL de download: {download_url}")
                 
                 # O SICAR usa POST para download de shapefile de imóvel
                 response = self.sicar._session.post(download_url)
                 
-                if response.status_code != httpx.codes.OK:
-                    raise Exception(f"HTTP {response.status_code}")
-                
+                status_code = response.status_code
                 content_type = response.headers.get("Content-Type", "")
+                content_length = len(response.content)
+                
+                logger.debug(f"Response: status={status_code}, content_type={content_type}, length={content_length}")
+                
+                if status_code != httpx.codes.OK:
+                    raise Exception(f"HTTP {status_code}")
                 
                 # Verificar se é um arquivo válido
-                if "application/zip" in content_type or "application/octet-stream" in content_type or len(response.content) > 1000:
+                if "application/zip" in content_type or "application/octet-stream" in content_type or content_length > 1000:
                     file_bytes = response.content
                     
                     # Criar nome do arquivo baseado no CAR
@@ -727,15 +751,12 @@ class SicarService:
                     logger.info(f"Download streaming CAR concluído: {filename} ({len(file_bytes)} bytes)")
                     return file_bytes, filename
                 else:
-                    raise Exception("Resposta não é um arquivo válido (provavelmente captcha incorreto)")
+                    raise Exception(f"Resposta inválida: content_type={content_type}, length={content_length}")
                     
             except Exception as e:
                 retry_count += 1
                 last_error = e
-                logger.warning(f"Erro na tentativa {retry_count}: {e}")
-                
-                import time
-                import random
+                logger.warning(f"[{retry_count:02d}] Erro: {e}")
                 time.sleep(random.random() + random.random())
         
         raise Exception(f"Download CAR falhou após {max_retries} tentativas: {last_error}")
