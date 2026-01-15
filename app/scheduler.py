@@ -203,6 +203,48 @@ class TaskScheduler:
             self.scheduler.shutdown()
             logger.info("Agendador parado")
 
+    def is_running(self) -> bool:
+        """
+        Verifica se o agendador está rodando.
+        
+        Returns:
+            True se o agendador está ativo e tem jobs configurados
+        """
+        if not settings.schedule_enabled:
+            return False
+        
+        # Verificar se o scheduler está rodando
+        if self.scheduler.running:
+            return True
+        
+        # Fallback: verificar se há jobs (pode estar rodando mesmo sem flag)
+        try:
+            return len(self.scheduler.get_jobs()) > 0
+        except Exception:
+            return False
+
+    def get_status(self) -> str:
+        """
+        Retorna o status do agendador como string.
+        
+        Returns:
+            'running', 'stopped' ou 'disabled'
+        """
+        if not settings.schedule_enabled:
+            return "disabled"
+        
+        if self.scheduler.running:
+            return "running"
+        
+        # Fallback: verificar se há jobs
+        try:
+            if len(self.scheduler.get_jobs()) > 0:
+                return "running"
+        except Exception:
+            pass
+        
+        return "stopped"
+
     def _daily_collection_job(self):
         """
         Job de coleta diária.

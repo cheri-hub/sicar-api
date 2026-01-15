@@ -553,12 +553,21 @@ async def health_check(db: Session = Depends(get_db)):
     Retorna status do banco de dados, agendador e jobs ativos.
     """
     db_status = "healthy" if check_connection() else "unhealthy"
-    scheduler_status = "running" if scheduler.scheduler.running else "stopped"
+    
+    # Usar método do scheduler para verificar status
+    scheduler_status = scheduler.get_status()
     
     # Contar jobs ativos (não pausados)
-    active_jobs = sum(1 for job in scheduler.scheduler.get_jobs() if job.next_run_time is not None)
+    try:
+        active_jobs = sum(1 for job in scheduler.scheduler.get_jobs() if job.next_run_time is not None)
+    except Exception:
+        active_jobs = 0
     
-    overall_status = "healthy" if (db_status == "healthy" and scheduler_status == "running") else "unhealthy"
+    # Status geral - considerar "disabled" como ok
+    if scheduler_status == "disabled":
+        overall_status = "healthy" if db_status == "healthy" else "unhealthy"
+    else:
+        overall_status = "healthy" if (db_status == "healthy" and scheduler_status == "running") else "unhealthy"
     
     return HealthResponse(
         status=overall_status,
