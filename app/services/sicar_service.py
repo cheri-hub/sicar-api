@@ -566,3 +566,176 @@ class SicarService:
             Dict com estatísticas
         """
         return self.repository.get_download_stats()
+
+    def download_polygon_as_bytes(
+        self,
+        state: str,
+        polygon: str
+    ) -> tuple[bytes, str]:
+        """
+        Baixa um polígono específico do SICAR e retorna os bytes do arquivo.
+        
+        Este método é usado para streaming direto para aplicações externas (C#).
+        Não salva o arquivo no disco, apenas retorna os bytes.
+        
+        Args:
+            state: Sigla do estado (ex: "SP")
+            polygon: Tipo de polígono (ex: "APPS", "AREA_PROPERTY")
+            
+        Returns:
+            Tuple com (bytes do arquivo ZIP, nome do arquivo)
+            
+        Raises:
+            Exception: Se o download falhar
+        """
+        from SICAR import State, Polygon
+        import io
+        
+        logger.info(f"Iniciando download streaming: {state} - {polygon}")
+        
+        # Converter strings para enums
+        state_enum = State[state.upper()]
+        polygon_enum = Polygon[polygon.upper()]
+        
+        max_retries = settings.sicar_max_retries
+        retry_count = 0
+        last_error = None
+        
+        while retry_count < max_retries:
+            try:
+                # Obter captcha
+                captcha = self.sicar._driver.get_captcha(self.sicar._download_captcha())
+                
+                if len(captcha) != 5:
+                    retry_count += 1
+                    logger.debug(f"Captcha inválido: {captcha}")
+                    continue
+                
+                logger.info(f"Tentativa {retry_count + 1}/{max_retries} com captcha: {captcha}")
+                
+                # Fazer download para bytes
+                from urllib.parse import urlencode
+                import httpx
+                
+                query = urlencode({
+                    "idEstado": state_enum.value, 
+                    "tipoBase": polygon_enum.value, 
+                    "ReCaptcha": captcha
+                })
+                
+                with self.sicar._session.stream("GET", f"{self.sicar._DOWNLOAD_BASE}?{query}") as response:
+                    if response.status_code != httpx.codes.OK:
+                        raise Exception(f"HTTP {response.status_code}")
+                    
+                    content_type = response.headers.get("Content-Type", "")
+                    content_length = int(response.headers.get("Content-Length", 0))
+                    
+                    if content_length == 0 or not content_type.startswith("application/zip"):
+                        raise Exception("Resposta não é um arquivo ZIP válido")
+                    
+                    # Ler todos os bytes
+                    buffer = io.BytesIO()
+                    for chunk in response.iter_bytes():
+                        buffer.write(chunk)
+                    
+                    file_bytes = buffer.getvalue()
+                    filename = f"{state_enum.value}_{polygon_enum.value}.zip"
+                    
+                    logger.info(f"Download streaming concluído: {filename} ({len(file_bytes)} bytes)")
+                    return file_bytes, filename
+                    
+            except Exception as e:
+                retry_count += 1
+                last_error = e
+                logger.warning(f"Erro na tentativa {retry_count}: {e}")
+                
+                import time
+                import random
+                time.sleep(random.random() + random.random())
+        
+        raise Exception(f"Download falhou após {max_retries} tentativas: {last_error}")
+
+    def download_car_as_bytes(
+        self,
+        car_number: str
+    ) -> tuple[bytes, str]:
+        """
+        Baixa shapefile de uma propriedade pelo CAR e retorna os bytes do arquivo.
+        
+        Este método é usado para streaming direto para aplicações externas (C#).
+        Não salva o arquivo no disco, apenas retorna os bytes.
+        
+        Args:
+            car_number: Número do CAR (ex: "SP-3538709-4861E981046E49BC81720C879459E554")
+            
+        Returns:
+            Tuple com (bytes do arquivo ZIP, nome do arquivo)
+            
+        Raises:
+            Exception: Se o download falhar
+        """
+        import io
+        
+        logger.info(f"Iniciando download streaming CAR: {car_number}")
+        
+        # Buscar propriedade para obter internal_id
+        property_data = self.sicar.search_by_car_number(car_number)
+        internal_id = property_data.get("id")
+        
+        if not internal_id:
+            raise Exception(f"Internal ID não encontrado para CAR: {car_number}")
+        
+        logger.info(f"Internal ID encontrado: {internal_id}")
+        
+        max_retries = settings.sicar_max_retries
+        retry_count = 0
+        last_error = None
+        
+        while retry_count < max_retries:
+            try:
+                # Obter captcha
+                captcha = self.sicar._driver.get_captcha(self.sicar._download_captcha())
+                
+                if len(captcha) != 5:
+                    retry_count += 1
+                    logger.debug(f"Captcha inválido: {captcha}")
+                    continue
+                
+                logger.info(f"Tentativa {retry_count + 1}/{max_retries} com captcha: {captcha}")
+                
+                # Fazer download para bytes
+                import httpx
+                
+                download_url = f"{self.sicar._BASE}/imoveis/exportShapeFile?idImovel={internal_id}&ReCaptcha={captcha}"
+                
+                # O SICAR usa POST para download de shapefile de imóvel
+                response = self.sicar._session.post(download_url)
+                
+                if response.status_code != httpx.codes.OK:
+                    raise Exception(f"HTTP {response.status_code}")
+                
+                content_type = response.headers.get("Content-Type", "")
+                
+                # Verificar se é um arquivo válido
+                if "application/zip" in content_type or "application/octet-stream" in content_type or len(response.content) > 1000:
+                    file_bytes = response.content
+                    
+                    # Criar nome do arquivo baseado no CAR
+                    safe_car = car_number.replace("-", "_").replace("/", "_")
+                    filename = f"{safe_car}.zip"
+                    
+                    logger.info(f"Download streaming CAR concluído: {filename} ({len(file_bytes)} bytes)")
+                    return file_bytes, filename
+                else:
+                    raise Exception("Resposta não é um arquivo válido (provavelmente captcha incorreto)")
+                    
+            except Exception as e:
+                retry_count += 1
+                last_error = e
+                logger.warning(f"Erro na tentativa {retry_count}: {e}")
+                
+                import time
+                import random
+                time.sleep(random.random() + random.random())
+        
+        raise Exception(f"Download CAR falhou após {max_retries} tentativas: {last_error}")

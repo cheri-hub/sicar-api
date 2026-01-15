@@ -12,7 +12,7 @@ from datetime import datetime
 
 from fastapi import FastAPI, Depends, HTTPException, BackgroundTasks, status, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -158,6 +158,32 @@ class StateDownloadRequest(BaseModel):
                     }
                 }
             ]
+        }
+
+
+class CARStreamDownloadRequest(BaseModel):
+    """Schema para requisição de download por CAR com streaming (retorna arquivo)."""
+    car_number: str
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "car_number": "SP-3538709-4861E981046E49BC81720C879459E554"
+            }
+        }
+
+
+class StateStreamDownloadRequest(BaseModel):
+    """Schema para download de polígono de um estado com streaming (retorna arquivo)."""
+    state: str
+    polygon: str
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "state": "SP",
+                "polygon": "AREA_PROPERTY"
+            }
         }
 
 
@@ -1214,6 +1240,106 @@ async def get_recent_tasks(limit: int = 20, db: Session = Depends(get_db)):
             for t in tasks
         ]
     }
+
+
+# ===== Streaming Download Endpoints (para aplicações externas como C#) =====
+
+@limiter.limit(f"{settings.rate_limit_per_minute_downloads}/minute")
+@app.post("/stream/state", tags=["Stream Downloads"], dependencies=[Depends(verify_api_key)])
+async def stream_download_state(
+    request: Request,
+    body: StateStreamDownloadRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    Baixa um shapefile de polígono de um estado e retorna o arquivo diretamente.
+    
+    Este endpoint é ideal para integração com aplicações externas (C#, Java, etc.)
+    que precisam receber o arquivo para processamento próprio.
+    
+    Requer autenticação via API Key no header X-API-Key.
+    
+    **Importante**: Este é um download síncrono que pode demorar alguns segundos
+    devido à resolução de captcha. Para downloads em lote, use /downloads/state.
+    
+    Parâmetros:
+    - state: Sigla do estado (AC, AL, AM, BA, CE, DF, ES, GO, MA, MT, MS, MG, PA, PB, PR, PE, PI, RJ, RN, RS, RO, RR, SC, SP, SE, TO)
+    - polygon: Tipo de polígono (AREA_PROPERTY, APPS, NATIVE_VEGETATION, HYDROGRAPHY, LEGAL_RESERVE, RESTRICTED_USE, CONSOLIDATED_AREA, ADMINISTRATIVE_SERVICE, AREA_FALL)
+    
+    Retorna:
+    - Arquivo ZIP com o shapefile
+    """
+    try:
+        service = SicarService(db)
+        
+        file_bytes, filename = service.download_polygon_as_bytes(
+            state=body.state.upper(),
+            polygon=body.polygon.upper()
+        )
+        
+        return StreamingResponse(
+            iter([file_bytes]),
+            media_type="application/zip",
+            headers={
+                "Content-Disposition": f"attachment; filename={filename}",
+                "Content-Length": str(len(file_bytes))
+            }
+        )
+        
+    except Exception as e:
+        logger.error(f"Erro no download streaming: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Erro ao baixar arquivo: {str(e)}"
+        )
+
+
+@limiter.limit(f"{settings.rate_limit_per_minute_downloads}/minute")
+@app.post("/stream/car", tags=["Stream Downloads"], dependencies=[Depends(verify_api_key)])
+async def stream_download_car(
+    request: Request,
+    body: CARStreamDownloadRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    Baixa shapefile de uma propriedade específica pelo número CAR e retorna o arquivo diretamente.
+    
+    Este endpoint é ideal para integração com aplicações externas (C#, Java, etc.)
+    que precisam receber o arquivo para processamento próprio.
+    
+    Requer autenticação via API Key no header X-API-Key.
+    
+    **Importante**: Este é um download síncrono que pode demorar alguns segundos
+    devido à busca da propriedade e resolução de captcha.
+    
+    Parâmetros:
+    - car_number: Número do CAR (ex: "SP-3538709-4861E981046E49BC81720C879459E554")
+    
+    Retorna:
+    - Arquivo ZIP com o shapefile da propriedade
+    """
+    try:
+        service = SicarService(db)
+        
+        file_bytes, filename = service.download_car_as_bytes(
+            car_number=body.car_number
+        )
+        
+        return StreamingResponse(
+            iter([file_bytes]),
+            media_type="application/zip",
+            headers={
+                "Content-Disposition": f"attachment; filename={filename}",
+                "Content-Length": str(len(file_bytes))
+            }
+        )
+        
+    except Exception as e:
+        logger.error(f"Erro no download streaming CAR: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Erro ao baixar arquivo: {str(e)}"
+        )
 
 
 # ===== Error Handlers =====
