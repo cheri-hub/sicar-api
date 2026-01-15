@@ -402,8 +402,7 @@ class TaskScheduler:
         job = self.scheduler.get_job(job_id)
         if job:
             job.reschedule(
-                trigger=CronTrigger(hour=hour, minute=minute),
-                jobstore=None
+                trigger=CronTrigger(hour=hour, minute=minute)
             )
             logger.info(f"Job {job_id} reagendado para {hour:02d}:{minute:02d}")
             return True
@@ -467,7 +466,7 @@ class TaskScheduler:
         else:
             return False
 
-        job.reschedule(trigger=trigger, jobstore=None)
+        job.reschedule(trigger=trigger)
         return True
 
 
