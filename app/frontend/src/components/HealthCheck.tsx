@@ -149,7 +149,7 @@ export default function HealthCheck() {
               <p className="text-gray-500 text-xs">Documentação interativa com teste de endpoints</p>
             </div>
             <a
-              href="http://localhost:8000/docs"
+              href="/docs"
               target="_blank"
               rel="noopener noreferrer"
               className="text-primary-600 hover:text-primary-700 font-medium"
