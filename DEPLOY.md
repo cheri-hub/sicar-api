@@ -224,8 +224,16 @@ v1.2.3
 
 ### Requisitos
 - VPS com Ubuntu 22.04+ (mínimo 2GB RAM, 20GB disco)
-- Domínio apontando para IP da VPS
 - Portas 80 e 443 liberadas no firewall
+- Domínio apontando para IP da VPS (opcional, pode usar IP direto)
+
+### Provedores Recomendados
+
+| Provedor | Plano | Preço | Link |
+|----------|-------|-------|------|
+| **Hetzner** | CX22 | €4,51/mês | [hetzner.com/cloud](https://www.hetzner.com/cloud) |
+| **Hostinger** | KVM 1 | R$25/mês | [hostinger.com.br/vps](https://www.hostinger.com.br/servidor-vps) |
+| **DigitalOcean** | Basic | $6/mês | [digitalocean.com](https://www.digitalocean.com) |
 
 ### Passo a Passo
 
@@ -233,50 +241,63 @@ v1.2.3
 # 1. Conectar na VPS
 ssh root@SEU_IP
 
-# 2. Instalar dependências
-apt update && apt upgrade -y
-apt install -y docker.io docker-compose nginx certbot python3-certbot-nginx
+# 2. Remover repositórios problemáticos (Hostinger)
+rm -f /etc/apt/sources.list.d/monarx.list 2>/dev/null
 
-# 3. Habilitar Docker
+# 3. Atualizar sistema
+apt update && apt upgrade -y
+
+# 4. Instalar dependências
+apt install -y docker.io docker-compose-v2 nginx certbot python3-certbot-nginx curl
+
+# 5. Habilitar Docker
 systemctl enable docker
 systemctl start docker
 
-# 4. Criar diretório do projeto
+# 6. Verificar instalação
+docker --version
+docker compose version
+
+# 7. Configurar Firewall
+ufw allow OpenSSH
+ufw allow 80/tcp
+ufw allow 443/tcp
+ufw enable
+
+# 8. Criar diretório do projeto
 mkdir -p /opt/sicar
 cd /opt/sicar
+mkdir -p downloads logs
 
-# 5. Criar .env
-cat > .env << 'EOF'
-# Banco de Dados
+# 9. Gerar senhas e criar .env
+API_KEY=$(python3 -c "import secrets; print(secrets.token_urlsafe(32))")
+DB_PASS=$(python3 -c "import secrets; print(secrets.token_urlsafe(16))")
+
+echo "🔑 Sua API Key: $API_KEY"
+echo "📝 GUARDE ESSA CHAVE!"
+
+cat > .env << EOF
 POSTGRES_USER=sicar_user
-POSTGRES_PASSWORD=SENHA_FORTE_AQUI
+POSTGRES_PASSWORD=$DB_PASS
 POSTGRES_DB=sicar_db
 POSTGRES_HOST=db
 POSTGRES_PORT=5432
 
-# Segurança - GERE UMA API KEY NOVA!
-API_KEY=GERAR_ABAIXO
-CORS_ORIGINS=https://sicar.seudominio.com
+API_KEY=$API_KEY
+CORS_ORIGINS=*
 ALLOWED_IPS=
 
-# Agendamento
 SCHEDULE_ENABLED=True
 SCHEDULE_HOUR=2
 AUTO_DOWNLOAD_STATES=SP
 AUTO_DOWNLOAD_POLYGONS=APPS,LEGAL_RESERVE
 
-# Limites
 RATE_LIMIT_ENABLED=True
 MIN_DISK_SPACE_GB=10
 MAX_CONCURRENT_DOWNLOADS=5
 EOF
 
-# 6. Gerar API Key e atualizar .env
-API_KEY=$(python3 -c "import secrets; print(secrets.token_urlsafe(32))")
-sed -i "s/API_KEY=GERAR_ABAIXO/API_KEY=$API_KEY/" .env
-echo "Sua API Key: $API_KEY"
-
-# 7. Criar docker-compose.yml para produção
+# 10. Criar docker-compose.yml
 cat > docker-compose.yml << 'EOF'
 version: '3.8'
 
@@ -297,8 +318,8 @@ services:
   api:
     image: ghcr.io/cheri-hub/sicar-api:latest
     container_name: sicar_api
-    expose:
-      - "8000"
+    ports:
+      - "127.0.0.1:8000:8000"
     env_file:
       - .env
     environment:
@@ -317,8 +338,8 @@ services:
   frontend:
     image: ghcr.io/cheri-hub/sicar-frontend:latest
     container_name: sicar_frontend
-    expose:
-      - "80"
+    ports:
+      - "127.0.0.1:3000:80"
     environment:
       API_KEY: ${API_KEY}
     depends_on:
@@ -335,85 +356,101 @@ networks:
     driver: bridge
 EOF
 
-# 8. Criar pastas
-mkdir -p downloads logs
+# 11. Subir containers
+docker compose pull
+docker compose up -d
 
-# 9. Subir containers
-docker-compose up -d
+# 12. Verificar se está rodando
+docker compose ps
 
-# 10. Configurar Nginx como reverse proxy
+# 13. Configurar Nginx (acesso por IP)
 cat > /etc/nginx/sites-available/sicar << 'EOF'
 server {
-    listen 80;
-    server_name sicar.seudominio.com;
+    listen 80 default_server;
+    server_name _;
 
-    # Frontend
     location / {
         proxy_pass http://127.0.0.1:3000;
         proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection 'upgrade';
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_cache_bypass $http_upgrade;
+        proxy_connect_timeout 60s;
+        proxy_send_timeout 300s;
+        proxy_read_timeout 300s;
     }
 
-    # API docs (opcional - acesso direto)
     location /docs {
         proxy_pass http://127.0.0.1:8000/docs;
         proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
     }
 
     location /openapi.json {
         proxy_pass http://127.0.0.1:8000/openapi.json;
-        proxy_set_header Host $host;
+    }
+
+    location /redoc {
+        proxy_pass http://127.0.0.1:8000/redoc;
     }
 }
 EOF
 
-# 11. Ativar site
+# 14. Ativar Nginx
 ln -sf /etc/nginx/sites-available/sicar /etc/nginx/sites-enabled/
 rm -f /etc/nginx/sites-enabled/default
 nginx -t && systemctl reload nginx
 
-# 12. Configurar SSL com Let's Encrypt
-certbot --nginx -d sicar.seudominio.com --non-interactive --agree-tos -m seu@email.com
-
-# 13. Verificar
-curl https://sicar.seudominio.com/api/health
+# 15. Testar
+curl http://localhost:8000/health
+echo ""
+echo "✅ Acesse: http://SEU_IP"
 ```
 
-### Expor portas para VPS (docker-compose.yml alternativo)
+### Adicionar SSL (Se tiver domínio)
 
-Se preferir **não usar Nginx externo**, altere o docker-compose:
+```bash
+# Editar nginx para usar seu domínio
+nano /etc/nginx/sites-available/sicar
+# Altere: server_name _; 
+# Para:   server_name sicar.seudominio.com;
 
-```yaml
-  frontend:
-    image: ghcr.io/cheri-hub/sicar-frontend:latest
-    container_name: sicar_frontend
-    ports:
-      - "80:80"      # HTTP
-      - "443:443"    # HTTPS (requer SSL no container)
-    environment:
-      API_KEY: ${API_KEY}
-    depends_on:
-      - api
-    restart: always
+# Recarregar nginx
+nginx -t && systemctl reload nginx
+
+# Instalar certificado SSL
+certbot --nginx -d sicar.seudominio.com
+
+# Testar renovação automática
+certbot renew --dry-run
 ```
 
 ### Comandos de Manutenção
 
 ```bash
-# Ver logs
 cd /opt/sicar
-docker-compose logs -f
+
+# Ver status
+docker compose ps
+
+# Ver logs
+docker compose logs -f
+docker compose logs -f api      # só API
+docker compose logs --tail=100  # últimas 100 linhas
+
+# Reiniciar
+docker compose restart
+docker compose restart api      # só API
 
 # Atualizar para nova versão
-docker-compose pull
-docker-compose up -d
+docker compose pull
+docker compose up -d
+docker image prune -f           # remover imagens antigas
+
+# Parar/Iniciar
+docker compose down             # parar
+docker compose up -d            # iniciar
+docker compose down -v          # parar e APAGAR banco (CUIDADO!)
 
 # Backup do banco
 docker exec sicar_postgres pg_dump -U sicar_user sicar_db > backup_$(date +%Y%m%d).sql
@@ -423,21 +460,26 @@ docker exec -i sicar_postgres psql -U sicar_user sicar_db < backup_20260115.sql
 
 # Ver uso de disco
 du -sh downloads/
-
-# Limpar imagens antigas
-docker image prune -a
+df -h
 ```
 
-### Renovação Automática do SSL
-
-O Certbot já configura renovação automática. Verifique:
+### Backup Automático (Cron)
 
 ```bash
-# Testar renovação
-certbot renew --dry-run
+# Criar script de backup
+cat > /opt/sicar/backup.sh << 'EOF'
+#!/bin/bash
+cd /opt/sicar
+BACKUP_FILE="backup_$(date +%Y%m%d_%H%M%S).sql"
+docker exec sicar_postgres pg_dump -U sicar_user sicar_db > $BACKUP_FILE
+gzip $BACKUP_FILE
+ls -t backup_*.sql.gz | tail -n +8 | xargs -r rm
+EOF
 
-# Ver timer de renovação
-systemctl list-timers | grep certbot
+chmod +x /opt/sicar/backup.sh
+
+# Agendar backup diário às 3h
+(crontab -l 2>/dev/null; echo "0 3 * * * /opt/sicar/backup.sh") | crontab -
 ```
 
 ---
