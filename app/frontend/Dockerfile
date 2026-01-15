@@ -17,8 +17,11 @@ FROM nginx:alpine
 # Copiar build do React
 COPY --from=build /app/dist /usr/share/nginx/html
 
-# Copiar configuração customizada do nginx
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+# Copiar configuração como template (nginx substitui variáveis automaticamente)
+COPY nginx.conf /etc/nginx/templates/default.conf.template
+
+# Dizer ao nginx para substituir APENAS a variável API_KEY (ignora $host, $http_upgrade, etc)
+ENV NGINX_ENVSUBST_FILTER=API_KEY
 
 EXPOSE 80
 
