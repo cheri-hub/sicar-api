@@ -191,6 +191,9 @@ class HealthResponse(BaseModel):
     """Schema para resposta de health check."""
     status: str
     database: str
+    scheduler: str
+    active_jobs: int
+    version: str
 
 
 class DiskHealthResponse(BaseModel):
@@ -425,16 +428,79 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title=settings.app_name,
     version=settings.app_version,
-    description="""API REST para automação de downloads e gerenciamento de dados do SICAR (Sistema Nacional de Cadastro Ambiental Rural).
-    
-    Recursos:
-    - Download automático de shapefiles por estado e polígono
-    - Download individual por número CAR
-    - Agendador configurável (diário, semanal, por intervalo)
-    - Consulta de propriedades e estatísticas
-    - Rastreamento completo de jobs de download
+    description="""
+# API REST para SICAR (Sistema Nacional de Cadastro Ambiental Rural)
+
+API para automação de downloads e gerenciamento de dados geoespaciais do SICAR.
+
+## 🔑 Autenticação
+
+Endpoints protegidos requerem a API Key no header:
+```
+X-API-Key: sua-api-key-aqui
+```
+
+## 📦 Principais Funcionalidades
+
+### Downloads Assíncronos (arquivos salvos no servidor)
+- `POST /downloads/state` - Download de shapefiles por estado (background)
+- `POST /downloads/car` - Download de shapefile por CAR (background)
+- `GET /downloads` - Listar histórico de downloads
+- `GET /downloads/stats` - Estatísticas de downloads
+
+### Downloads Streaming (retorna arquivo diretamente)
+- `POST /stream/state` - Download direto de shapefile por estado
+- `POST /stream/car` - Download direto de shapefile por CAR
+
+**Use os endpoints `/stream/*` para integração com aplicações externas (C#, Java, etc.)**
+
+### Busca e Consultas
+- `GET /search/car/{car_number}` - Buscar propriedade por CAR
+- `GET /releases` - Datas de release por estado
+- `GET /properties/state/{state}` - Listar propriedades de um estado
+
+### Agendador
+- `GET /scheduler/jobs` - Listar jobs agendados
+- `POST /scheduler/jobs/{job_id}/run` - Executar job imediatamente
+- `POST /scheduler/jobs/{job_id}/reschedule` - Reagendar job
+
+## 🗺️ Polígonos Disponíveis
+
+| Código | Descrição |
+|--------|-----------|
+| `AREA_PROPERTY` | Área do Imóvel |
+| `APPS` | Áreas de Preservação Permanente |
+| `NATIVE_VEGETATION` | Vegetação Nativa |
+| `HYDROGRAPHY` | Hidrografia |
+| `LEGAL_RESERVE` | Reserva Legal |
+| `RESTRICTED_USE` | Uso Restrito |
+| `CONSOLIDATED_AREA` | Área Consolidada |
+| `ADMINISTRATIVE_SERVICE` | Servidão Administrativa |
+| `AREA_FALL` | Área de Pousio |
+
+## 🏛️ Estados Disponíveis
+
+AC, AL, AM, AP, BA, CE, DF, ES, GO, MA, MG, MS, MT, PA, PB, PE, PI, PR, RJ, RN, RO, RR, RS, SC, SE, SP, TO
+
+## ⚠️ Rate Limiting
+
+A API possui limites de requisições para evitar sobrecarga:
+- Downloads: 5/minuto
+- Leituras: 60/minuto
+- Buscas: 30/minuto
     """,
-    lifespan=lifespan
+    lifespan=lifespan,
+    openapi_tags=[
+        {"name": "Root", "description": "Informações básicas da API"},
+        {"name": "Health", "description": "Verificação de saúde e status do sistema"},
+        {"name": "Releases", "description": "Datas de disponibilização dos dados por estado"},
+        {"name": "Downloads", "description": "Downloads assíncronos de shapefiles (salvos no servidor)"},
+        {"name": "Stream Downloads", "description": "Downloads síncronos com streaming (retorna arquivo diretamente)"},
+        {"name": "CAR", "description": "Operações específicas por número CAR"},
+        {"name": "Properties", "description": "Consulta de propriedades e estatísticas"},
+        {"name": "Scheduler", "description": "Gerenciamento de jobs agendados"},
+        {"name": "Settings", "description": "Configurações do sistema"},
+    ]
 )
 
 # Configurar rate limiting
@@ -603,12 +669,21 @@ async def update_setting(key: str, setting_data: SettingUpdate, db: Session = De
 
 # ===== Releases Endpoints =====
 
-@app.get("/releases", tags=["Releases"])
+@app.get("/releases", tags=["Releases"],
+         summary="Lista datas de release por estado")
 async def get_releases(db: Session = Depends(get_db)):
     """
-    Retorna todas as datas de release dos estados.
+    Retorna as datas de disponibilização dos dados do SICAR por estado.
     
-    Lista as datas de disponibilização dos dados por estado e último download realizado.
+    ## Retorno
+    Para cada estado:
+    - `state`: Sigla do estado (UF)
+    - `release_date`: Data de disponibilização no SICAR
+    - `last_checked`: Última verificação de atualização
+    - `last_download`: Último download realizado
+    
+    ## Uso
+    Use para verificar se há novos dados disponíveis antes de iniciar downloads.
     """
     repository = DataRepository(db)
     releases = repository.get_all_releases()
@@ -658,7 +733,8 @@ async def update_releases(
 # ===== Downloads Endpoints =====
 
 @limiter.limit(f"{settings.rate_limit_per_minute_downloads}/minute")
-@app.post("/downloads/state", tags=["Downloads"], status_code=status.HTTP_202_ACCEPTED, dependencies=[Depends(verify_api_key)])
+@app.post("/downloads/state", tags=["Downloads"], status_code=status.HTTP_202_ACCEPTED, dependencies=[Depends(verify_api_key)],
+          summary="Download assíncrono de shapefiles por estado")
 async def download_state(
     request: Request,
     body: StateDownloadRequest,
@@ -666,18 +742,37 @@ async def download_state(
     db: Session = Depends(get_db)
 ):
     """
-    Baixa um ou múltiplos shapefiles de polígonos de um estado.
+    Inicia download de shapefiles de polígonos de um estado em **background**.
     
-    Requer autenticação via API Key no header X-API-Key.
+    ## Autenticação
+    Requer API Key no header `X-API-Key`.
     
-    O download é executado em background. Use GET /downloads para monitorar o progresso.
+    ## Comportamento
+    O download é executado em background (assíncrono). Use `GET /downloads` para monitorar o progresso.
+    Os arquivos são salvos no servidor.
     
-    Parâmetros:
-    - state: Sigla do estado (AC, AL, AM, BA, CE, DF, ES, GO, MA, MT, MS, MG, PA, PB, PR, PE, PI, RJ, RN, RS, RO, RR, SC, SP, SE, TO)
-    - polygons: Lista de tipos de polígono (AREA_PROPERTY, APPS, NATIVE_VEGETATION, etc.)
+    **Para receber o arquivo diretamente, use `POST /stream/state`.**
+    
+    ## Estados Disponíveis
+    AC, AL, AM, AP, BA, CE, DF, ES, GO, MA, MG, MS, MT, PA, PB, PE, PI, PR, RJ, RN, RO, RR, RS, SC, SE, SP, TO
+    
+    ## Polígonos Disponíveis
+    - `AREA_PROPERTY` - Área do Imóvel
+    - `APPS` - Áreas de Preservação Permanente
+    - `NATIVE_VEGETATION` - Vegetação Nativa
+    - `HYDROGRAPHY` - Hidrografia
+    - `LEGAL_RESERVE` - Reserva Legal
+    - `RESTRICTED_USE` - Uso Restrito
+    - `CONSOLIDATED_AREA` - Área Consolidada
+    - `ADMINISTRATIVE_SERVICE` - Servidão Administrativa
+    - `AREA_FALL` - Área de Pousio
+    
+    ## Parâmetros
+    - `state`: Sigla do estado (obrigatório)
+    - `polygons`: Lista de tipos de polígono (opcional)
       * Se passar 1 elemento: download único
-      * Se passar vários elementos: cria um job para cada polígono
-      * Se não especificar: usa configuração padrão (AUTO_DOWNLOAD_POLYGONS)
+      * Se passar vários: cria um job para cada polígono
+      * Se omitir: usa configuração padrão do servidor
     """
     # Verificar limite de downloads concorrentes antes de aceitar
     repository = DataRepository(db)
@@ -706,7 +801,8 @@ async def download_state(
 
 
 @limiter.limit(f"{settings.rate_limit_per_minute_read}/minute")
-@app.get("/downloads", tags=["Downloads"])
+@app.get("/downloads", tags=["Downloads"],
+         summary="Lista histórico de downloads")
 async def list_downloads(
     request: Request,
     status: Optional[str] = None,
@@ -714,11 +810,22 @@ async def list_downloads(
     db: Session = Depends(get_db)
 ):
     """
-    Lista jobs de download.
+    Lista o histórico de jobs de download.
     
-    Parâmetros:
-    - status: Filtrar por status (pending, running, completed, failed)
-    - limit: Número máximo de resultados (padrão: 50)
+    ## Parâmetros
+    - `status`: Filtrar por status (`pending`, `running`, `completed`, `failed`)
+    - `limit`: Número máximo de resultados (padrão: 50)
+    
+    ## Retorno
+    Para cada download:
+    - `id`: ID do job
+    - `state`: Estado (UF)
+    - `polygon`: Tipo de polígono
+    - `status`: Status atual
+    - `file_path`: Caminho do arquivo (se concluído)
+    - `file_size`: Tamanho em bytes
+    - `error_message`: Mensagem de erro (se falhou)
+    - `created_at` / `completed_at`: Timestamps
     """
     repository = DataRepository(db)
     
@@ -792,20 +899,36 @@ async def get_download(job_id: int, db: Session = Depends(get_db)):
 # ===== CAR Downloads Endpoints =====
 
 @limiter.limit(f"{settings.rate_limit_per_minute_search}/minute")
-@app.get("/search/car/{car_number}", tags=["CAR"]) # MONTAGNER
+@app.get("/search/car/{car_number}", tags=["CAR"],
+         summary="Busca informações de propriedade por CAR")
 async def search_property_by_car(
     request: Request,
     car_number: str,
     db: Session = Depends(get_db)
 ):
     """
-    Busca propriedade no SICAR pelo número CAR.
+    Busca informações de uma propriedade no SICAR pelo número CAR.
     
-    Retorna informações da propriedade incluindo ID interno,
-    código, área, município, status e geometria.
+    ## Retorno
+    Retorna dados da propriedade incluindo:
+    - `internal_id`: ID interno do SICAR (necessário para download)
+    - `codigo`: Código da propriedade
+    - `area`: Área em hectares
+    - `municipio`: Nome do município
+    - `status`: Status do cadastro
+    - `geometry`: Geometria em GeoJSON
     
-    Parâmetros:
-    - car_number: Número do CAR (ex: SP-3538709-4861E981046E49BC81720C879459E554)
+    ## Formato do CAR
+    Padrão: `UF-CODIGO_MUNICIPIO-HASH`
+    
+    Exemplo: `SP-3538709-4861E981046E49BC81720C879459E554`
+    
+    ## Uso em C#
+    ```csharp
+    var response = await client.GetAsync($"/search/car/{carNumber}");
+    var json = await response.Content.ReadAsStringAsync();
+    var property = JsonSerializer.Deserialize<PropertyInfo>(json);
+    ```
     """
     try:
         service = SicarService(db)
@@ -830,7 +953,8 @@ async def search_property_by_car(
 
 
 @limiter.limit(f"{settings.rate_limit_per_minute_downloads}/minute")
-@app.post("/downloads/car", tags=["CAR"], status_code=status.HTTP_202_ACCEPTED, dependencies=[Depends(verify_api_key)])
+@app.post("/downloads/car", tags=["CAR"], status_code=status.HTTP_202_ACCEPTED, dependencies=[Depends(verify_api_key)],
+          summary="Download assíncrono de shapefile por CAR")
 async def download_by_car_number(
     request: Request,
     body: CARDownloadRequest,
@@ -838,16 +962,25 @@ async def download_by_car_number(
     db: Session = Depends(get_db)
 ):
     """
-    Baixa shapefile de propriedade específica pelo número CAR.
+    Inicia download de shapefile de uma propriedade específica pelo número CAR em **background**.
     
-    Requer autenticação via API Key no header X-API-Key.
+    ## Autenticação
+    Requer API Key no header `X-API-Key`.
     
-    O download é executado em background. Use GET /downloads/{job_id}
-    para consultar o status.
+    ## Comportamento
+    O download é executado em background (assíncrono). Use `GET /downloads/car/{car_number}` 
+    para consultar o status. O arquivo é salvo no servidor.
     
-    Parâmetros:
-    - car_number: Número do CAR
-    - force: Se True, força novo download mesmo se já existe (default: False)
+    **Para receber o arquivo diretamente, use `POST /stream/car`.**
+    
+    ## Formato do CAR
+    O número do CAR segue o padrão: `UF-CODIGO_MUNICIPIO-HASH`
+    
+    Exemplo: `SP-3538709-4861E981046E49BC81720C879459E554`
+    
+    ## Parâmetros
+    - `car_number`: Número completo do CAR (obrigatório)
+    - `force`: Se `true`, força novo download mesmo se arquivo já existe (default: `false`)
     """
     # Verificar limite de downloads concorrentes antes de aceitar
     repository = DataRepository(db)
@@ -958,10 +1091,23 @@ async def get_properties_stats(db: Session = Depends(get_db)):
 
 # ===== Scheduler Endpoints =====
 
-@app.get("/scheduler/jobs", tags=["Scheduler"])
+@app.get("/scheduler/jobs", tags=["Scheduler"],
+         summary="Lista jobs agendados")
 async def get_scheduled_jobs():
     """
-    Lista todos os jobs agendados.
+    Lista todos os jobs agendados no sistema.
+    
+    ## Retorno
+    Para cada job retorna:
+    - `id`: Identificador do job
+    - `name`: Nome descritivo
+    - `next_run_time`: Próxima execução agendada (ISO 8601)
+    - `trigger`: Expressão do agendamento
+    - `paused`: Se o job está pausado
+    
+    ## Jobs Padrão
+    - `daily_sicar_collection`: Coleta diária de shapefiles
+    - `update_release_dates`: Atualização de datas de release
     """
     jobs = scheduler.get_jobs()
     return {"jobs": jobs}
