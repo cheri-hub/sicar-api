@@ -1245,29 +1245,63 @@ async def get_recent_tasks(limit: int = 20, db: Session = Depends(get_db)):
 # ===== Streaming Download Endpoints (para aplicações externas como C#) =====
 
 @limiter.limit(f"{settings.rate_limit_per_minute_downloads}/minute")
-@app.post("/stream/state", tags=["Stream Downloads"], dependencies=[Depends(verify_api_key)])
+@app.post("/stream/state", tags=["Stream Downloads"], dependencies=[Depends(verify_api_key)],
+          summary="Download streaming de shapefile por estado",
+          response_description="Arquivo ZIP contendo o shapefile")
 async def stream_download_state(
     request: Request,
     body: StateStreamDownloadRequest,
     db: Session = Depends(get_db)
 ):
     """
-    Baixa um shapefile de polígono de um estado e retorna o arquivo diretamente.
+    Baixa um shapefile de polígono de um estado e **retorna o arquivo diretamente** na resposta HTTP.
     
-    Este endpoint é ideal para integração com aplicações externas (C#, Java, etc.)
-    que precisam receber o arquivo para processamento próprio.
+    ## Uso
+    Este endpoint é ideal para integração com aplicações externas (C#, Java, Python, etc.)
+    que precisam receber o arquivo para processamento próprio, sem salvar no servidor.
     
-    Requer autenticação via API Key no header X-API-Key.
+    ## Autenticação
+    Requer API Key no header `X-API-Key`.
     
-    **Importante**: Este é um download síncrono que pode demorar alguns segundos
-    devido à resolução de captcha. Para downloads em lote, use /downloads/state.
+    ## Tempo de Resposta
+    ⚠️ **Importante**: Este é um download síncrono que pode demorar **10-60 segundos**
+    devido à resolução de captcha do SICAR. Configure timeout adequado no cliente.
     
-    Parâmetros:
-    - state: Sigla do estado (AC, AL, AM, BA, CE, DF, ES, GO, MA, MT, MS, MG, PA, PB, PR, PE, PI, RJ, RN, RS, RO, RR, SC, SP, SE, TO)
-    - polygon: Tipo de polígono (AREA_PROPERTY, APPS, NATIVE_VEGETATION, HYDROGRAPHY, LEGAL_RESERVE, RESTRICTED_USE, CONSOLIDATED_AREA, ADMINISTRATIVE_SERVICE, AREA_FALL)
+    ## Polígonos Disponíveis
+    - `AREA_PROPERTY` - Área do Imóvel
+    - `APPS` - Áreas de Preservação Permanente
+    - `NATIVE_VEGETATION` - Vegetação Nativa
+    - `HYDROGRAPHY` - Hidrografia
+    - `LEGAL_RESERVE` - Reserva Legal
+    - `RESTRICTED_USE` - Uso Restrito
+    - `CONSOLIDATED_AREA` - Área Consolidada
+    - `ADMINISTRATIVE_SERVICE` - Servidão Administrativa
+    - `AREA_FALL` - Área de Pousio
     
-    Retorna:
-    - Arquivo ZIP com o shapefile
+    ## Exemplo C# (.NET)
+    ```csharp
+    using var client = new HttpClient();
+    client.Timeout = TimeSpan.FromMinutes(2);
+    client.DefaultRequestHeaders.Add("X-API-Key", "sua-api-key");
+    
+    var json = JsonSerializer.Serialize(new { state = "SP", polygon = "AREA_PROPERTY" });
+    var content = new StringContent(json, Encoding.UTF8, "application/json");
+    
+    var response = await client.PostAsync("https://cherihub.cloud/stream/state", content);
+    response.EnsureSuccessStatusCode();
+    
+    byte[] zipFile = await response.Content.ReadAsByteArrayAsync();
+    await File.WriteAllBytesAsync("SP_AREA_PROPERTY.zip", zipFile);
+    ```
+    
+    ## Exemplo cURL
+    ```bash
+    curl -X POST "https://cherihub.cloud/stream/state" \\
+      -H "X-API-Key: sua-api-key" \\
+      -H "Content-Type: application/json" \\
+      -d '{"state": "SP", "polygon": "AREA_PROPERTY"}' \\
+      --output SP_AREA_PROPERTY.zip
+    ```
     """
     try:
         service = SicarService(db)
@@ -1295,28 +1329,103 @@ async def stream_download_state(
 
 
 @limiter.limit(f"{settings.rate_limit_per_minute_downloads}/minute")
-@app.post("/stream/car", tags=["Stream Downloads"], dependencies=[Depends(verify_api_key)])
+@app.post("/stream/car", tags=["Stream Downloads"], dependencies=[Depends(verify_api_key)],
+          summary="Download streaming de shapefile por CAR",
+          response_description="Arquivo ZIP contendo o shapefile da propriedade")
 async def stream_download_car(
     request: Request,
     body: CARStreamDownloadRequest,
     db: Session = Depends(get_db)
 ):
     """
-    Baixa shapefile de uma propriedade específica pelo número CAR e retorna o arquivo diretamente.
+    Baixa shapefile de uma propriedade específica pelo número CAR e **retorna o arquivo diretamente**.
     
-    Este endpoint é ideal para integração com aplicações externas (C#, Java, etc.)
-    que precisam receber o arquivo para processamento próprio.
+    ## Uso
+    Este endpoint é ideal para integração com aplicações externas (C#, Java, Python, etc.)
+    que precisam receber o arquivo de uma propriedade específica para processamento próprio.
     
-    Requer autenticação via API Key no header X-API-Key.
+    ## Autenticação
+    Requer API Key no header `X-API-Key`.
     
-    **Importante**: Este é um download síncrono que pode demorar alguns segundos
-    devido à busca da propriedade e resolução de captcha.
+    ## Tempo de Resposta
+    ⚠️ **Importante**: Este é um download síncrono que pode demorar **10-60 segundos**
+    devido à busca da propriedade e resolução de captcha. Configure timeout adequado.
     
-    Parâmetros:
-    - car_number: Número do CAR (ex: "SP-3538709-4861E981046E49BC81720C879459E554")
+    ## Formato do CAR
+    O número do CAR segue o padrão: `UF-CODIGO_MUNICIPIO-HASH`
+    - Exemplo: `SP-3538709-4861E981046E49BC81720C879459E554`
     
-    Retorna:
-    - Arquivo ZIP com o shapefile da propriedade
+    ## Exemplo C# (.NET)
+    ```csharp
+    using var client = new HttpClient();
+    client.Timeout = TimeSpan.FromMinutes(2);
+    client.DefaultRequestHeaders.Add("X-API-Key", "sua-api-key");
+    
+    var carNumber = "SP-3538709-4861E981046E49BC81720C879459E554";
+    var json = JsonSerializer.Serialize(new { car_number = carNumber });
+    var content = new StringContent(json, Encoding.UTF8, "application/json");
+    
+    var response = await client.PostAsync("https://cherihub.cloud/stream/car", content);
+    response.EnsureSuccessStatusCode();
+    
+    byte[] zipFile = await response.Content.ReadAsByteArrayAsync();
+    await File.WriteAllBytesAsync($"{carNumber}.zip", zipFile);
+    
+    // Extrair e processar shapefile
+    using var archive = new ZipArchive(new MemoryStream(zipFile));
+    foreach (var entry in archive.Entries)
+    {
+        Console.WriteLine($"Arquivo: {entry.FullName}");
+    }
+    ```
+    
+    ## Exemplo Completo - Classe Client C#
+    ```csharp
+    public class SicarApiClient : IDisposable
+    {
+        private readonly HttpClient _client;
+        
+        public SicarApiClient(string baseUrl, string apiKey)
+        {
+            _client = new HttpClient { BaseAddress = new Uri(baseUrl) };
+            _client.Timeout = TimeSpan.FromMinutes(2);
+            _client.DefaultRequestHeaders.Add("X-API-Key", apiKey);
+        }
+        
+        public async Task<byte[]> DownloadByCarAsync(string carNumber)
+        {
+            var json = JsonSerializer.Serialize(new { car_number = carNumber });
+            var content = new StringContent(json, Encoding.UTF8, "application/json");
+            var response = await _client.PostAsync("/stream/car", content);
+            response.EnsureSuccessStatusCode();
+            return await response.Content.ReadAsByteArrayAsync();
+        }
+        
+        public async Task<byte[]> DownloadStatePolygonAsync(string state, string polygon)
+        {
+            var json = JsonSerializer.Serialize(new { state, polygon });
+            var content = new StringContent(json, Encoding.UTF8, "application/json");
+            var response = await _client.PostAsync("/stream/state", content);
+            response.EnsureSuccessStatusCode();
+            return await response.Content.ReadAsByteArrayAsync();
+        }
+        
+        public void Dispose() => _client?.Dispose();
+    }
+    
+    // Uso:
+    using var sicar = new SicarApiClient("https://cherihub.cloud", "sua-api-key");
+    var zip = await sicar.DownloadByCarAsync("SP-3538709-XXXX");
+    ```
+    
+    ## Exemplo cURL
+    ```bash
+    curl -X POST "https://cherihub.cloud/stream/car" \\
+      -H "X-API-Key: sua-api-key" \\
+      -H "Content-Type: application/json" \\
+      -d '{"car_number": "SP-3538709-4861E981046E49BC81720C879459E554"}' \\
+      --output propriedade.zip
+    ```
     """
     try:
         service = SicarService(db)
