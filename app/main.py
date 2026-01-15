@@ -500,7 +500,10 @@ A API possui limites de requisições para evitar sobrecarga:
         {"name": "Properties", "description": "Consulta de propriedades e estatísticas"},
         {"name": "Scheduler", "description": "Gerenciamento de jobs agendados"},
         {"name": "Settings", "description": "Configurações do sistema"},
-    ]
+    ],
+    servers=[
+        {"url": settings.api_base_url, "description": "Servidor de Produção"} 
+    ] if settings.api_base_url else None
 )
 
 # Configurar rate limiting
