@@ -40,8 +40,18 @@ jobs:
             
             cd /opt/sicar
             
-            echo "📥 Pulling latest changes..."
-            git pull origin main
+            # Verificar se é um repositório git
+            if [ ! -d ".git" ]; then
+              echo "⚠️ Diretório não é um repositório git. Inicializando..."
+              git init
+              git remote add origin https://github.com/cheri-hub/sicar-api.git
+              git fetch origin main
+              git checkout -f main
+            else
+              echo "📥 Pulling latest changes..."
+              git fetch origin main
+              git reset --hard origin/main
+            fi
             
             echo "🔄 Rebuilding containers..."
             docker compose down
