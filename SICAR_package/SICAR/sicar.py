@@ -121,7 +121,11 @@ class Sicar(Url):
         context = ssl.SSLContext(ssl.PROTOCOL_TLSv1_2)
         context.set_ciphers("RSA+AESGCM:RSA+AES:!aNULL:!MD5:!DSS")
 
-        self._session = httpx.Client(verify=context)
+        # Timeout aumentado para 120s (SICAR pode ser muito lento)
+        self._session = httpx.Client(
+            verify=context,
+            timeout=httpx.Timeout(120.0, connect=30.0)
+        )
         self._session.headers.update(
             headers
             if isinstance(headers, dict)
