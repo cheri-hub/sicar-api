@@ -1,86 +1,88 @@
 # ===================================================================
 # Deploy to Production
 # ===================================================================
-# Este workflow faz deploy automático para o servidor de produção
-# Executa após publicar uma release ou manualmente
+# Deploy automático para VPS quando houver push na main
+# 
+# Secrets necessários:
+#   VPS_HOST     - IP ou hostname do servidor
+#   VPS_USER     - Usuário SSH (ex: root)
+#   VPS_SSH_KEY  - Chave privada SSH (id_rsa completa)
 # ===================================================================
 
-name: Deploy
+name: Deploy to VPS
 
 on:
-  release:
-    types: [published]
+  push:
+    branches:
+      - main
   workflow_dispatch:
-    inputs:
-      environment:
-        description: 'Environment to deploy'
-        required: true
-        default: 'production'
-        type: choice
-        options:
-          - production
-          - staging
-
-env:
-  REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
 
 jobs:
   deploy:
-    name: 🚀 Deploy
+    name: 🚀 Deploy SICAR API
     runs-on: ubuntu-latest
-    environment: ${{ github.event.inputs.environment || 'production' }}
     
     steps:
       - name: 📥 Checkout
         uses: actions/checkout@v4
 
-      - name: 🔐 Login to GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: 🔐 Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts
 
-      - name: 🚀 Deploy to Server via SSH
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          port: ${{ secrets.SSH_PORT || 22 }}
-          script: |
-            # Login no GitHub Container Registry
-            echo ${{ secrets.GITHUB_TOKEN }} | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+      - name: 🚀 Deploy to VPS
+        run: |
+          ssh -o StrictHostKeyChecking=no ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} << 'ENDSSH'
+            set -e
             
-            # Navegar para diretório do projeto
-            cd /opt/sicarapi
+            cd /opt/sicar
             
-            # Pull da nova imagem
-            docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+            echo "📥 Pulling latest changes..."
+            git pull origin main
             
-            # Atualizar containers
-            docker-compose pull
-            docker-compose up -d --force-recreate
+            echo "🔄 Rebuilding containers..."
+            docker compose down
+            docker compose up -d --build
             
-            # Limpar imagens antigas
+            echo "⏳ Waiting for containers to be healthy..."
+            sleep 15
+            
+            echo "🔍 Container status:"
+            docker compose ps
+            
+            echo "🧹 Cleaning up old images..."
             docker image prune -f
             
-            # Verificar saúde
-            sleep 10
-            curl -f http://localhost:8000/health || exit 1
-            
-            echo "✅ Deploy completed successfully!"
+            echo "✅ Deploy completed!"
+          ENDSSH
+
+      - name: ❤️ Health Check
+        run: |
+          echo "Waiting for API to be ready..."
+          sleep 10
+          response=$(curl -s -o /dev/null -w "%{http_code}" https://sicar.cherihub.cloud/api/health || echo "000")
+          if [ "$response" = "200" ]; then
+            echo "✅ Health check passed! (HTTP $response)"
+          else
+            echo "⚠️ Health check returned HTTP $response"
+            exit 1
+          fi
 
       - name: 📧 Notify Success
         if: success()
         run: |
           echo "🚀 Deploy successful!"
-          echo "Image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest"
-          echo "Environment: ${{ github.event.inputs.environment || 'production' }}"
+          echo "Branch: ${{ github.ref_name }}"
+          echo "Commit: ${{ github.sha }}"
+          echo "URL: https://sicar.cherihub.cloud"
 
       - name: 🚨 Notify Failure
         if: failure()
         run: |
           echo "❌ Deploy failed!"
+          echo "Branch: ${{ github.ref_name }}"
+          echo "Commit: ${{ github.sha }}"
           echo "Check logs for details"

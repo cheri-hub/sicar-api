@@ -428,6 +428,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title=settings.app_name,
     version=settings.app_version,
+    root_path=settings.api_root_path,
     description="""
 # API REST para SICAR (Sistema Nacional de Cadastro Ambiental Rural)
 
@@ -1445,7 +1446,7 @@ async def stream_download_state(
     var json = JsonSerializer.Serialize(new { state = "SP", polygon = "AREA_PROPERTY" });
     var content = new StringContent(json, Encoding.UTF8, "application/json");
     
-    var response = await client.PostAsync("https://cherihub.cloud/stream/state", content);
+    var response = await client.PostAsync("https://sicar.cherihub.cloud/api/stream/state", content);
     response.EnsureSuccessStatusCode();
     
     byte[] zipFile = await response.Content.ReadAsByteArrayAsync();
@@ -1454,7 +1455,7 @@ async def stream_download_state(
     
     ## Exemplo cURL
     ```bash
-    curl -X POST "https://cherihub.cloud/stream/state" \\
+    curl -X POST "https://sicar.cherihub.cloud/api/stream/state" \\
       -H "X-API-Key: sua-api-key" \\
       -H "Content-Type: application/json" \\
       -d '{"state": "SP", "polygon": "AREA_PROPERTY"}' \\
@@ -1523,7 +1524,7 @@ async def stream_download_car(
     var json = JsonSerializer.Serialize(new { car_number = carNumber });
     var content = new StringContent(json, Encoding.UTF8, "application/json");
     
-    var response = await client.PostAsync("https://cherihub.cloud/stream/car", content);
+    var response = await client.PostAsync("https://sicar.cherihub.cloud/api/stream/car", content);
     response.EnsureSuccessStatusCode();
     
     byte[] zipFile = await response.Content.ReadAsByteArrayAsync();
@@ -1572,13 +1573,13 @@ async def stream_download_car(
     }
     
     // Uso:
-    using var sicar = new SicarApiClient("https://cherihub.cloud", "sua-api-key");
+    using var sicar = new SicarApiClient("https://sicar.cherihub.cloud/api", "sua-api-key");
     var zip = await sicar.DownloadByCarAsync("SP-3538709-XXXX");
     ```
     
     ## Exemplo cURL
     ```bash
-    curl -X POST "https://cherihub.cloud/stream/car" \\
+    curl -X POST "https://sicar.cherihub.cloud/api/stream/car" \\
       -H "X-API-Key: sua-api-key" \\
       -H "Content-Type: application/json" \\
       -d '{"car_number": "SP-3538709-4861E981046E49BC81720C879459E554"}' \\
