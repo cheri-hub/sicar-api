@@ -722,14 +722,18 @@ class SicarService:
                 
                 logger.info(f"[{retry_count + 1:02d}/{max_retries}] Tentando com captcha: {captcha}")
                 
-                # Fazer download para bytes
+                # Fazer download para bytes usando POST com data (como o package original)
                 import httpx
+                import base64
                 
-                download_url = f"{self.sicar._BASE}/imoveis/exportShapeFile?idImovel={internal_id}&ReCaptcha={captcha}"
-                logger.debug(f"URL de download: {download_url}")
-                
-                # O SICAR usa POST para download de shapefile de imóvel
-                response = self.sicar._session.post(download_url)
+                # O SICAR usa POST com data, não query params
+                response = self.sicar._session.post(
+                    f"{self.sicar._BASE}/imoveis/exportShapeFile",
+                    data={
+                        "idImovel": internal_id,
+                        "ReCaptcha": captcha
+                    }
+                )
                 
                 status_code = response.status_code
                 content_type = response.headers.get("Content-Type", "")
@@ -740,9 +744,16 @@ class SicarService:
                 if status_code != httpx.codes.OK:
                     raise Exception(f"HTTP {status_code}")
                 
+                # Verificar se resposta é base64 (formato que o SICAR às vezes retorna)
+                content = response.content
+                if response.text.startswith("data:application/zip;base64,"):
+                    base64_data = response.text.split(",", 1)[1]
+                    content = base64.b64decode(base64_data)
+                    logger.info(f"Resposta em base64 decodificada: {len(content)} bytes")
+                
                 # Verificar se é um arquivo válido
-                if "application/zip" in content_type or "application/octet-stream" in content_type or content_length > 1000:
-                    file_bytes = response.content
+                if "application/zip" in content_type or "application/octet-stream" in content_type or len(content) > 1000:
+                    file_bytes = content
                     
                     # Criar nome do arquivo baseado no CAR
                     safe_car = car_number.replace("-", "_").replace("/", "_")
@@ -751,7 +762,7 @@ class SicarService:
                     logger.info(f"Download streaming CAR concluído: {filename} ({len(file_bytes)} bytes)")
                     return file_bytes, filename
                 else:
-                    raise Exception(f"Resposta inválida: content_type={content_type}, length={content_length}")
+                    raise Exception(f"Resposta inválida: content_type={content_type}, length={len(content)}")
                     
             except Exception as e:
                 retry_count += 1
