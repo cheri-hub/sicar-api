@@ -152,17 +152,17 @@ Os downloads podem demorar **10-60 segundos** devido à resolução de captcha d
 ```
 sicarAPI/
 ├── app/
-│   ├── main_minimal.py         # API FastAPI (endpoints de stream)
+│   ├── main.py                 # API FastAPI (endpoints de stream)
 │   ├── config.py               # Configurações
 │   ├── auth.py                 # Autenticação API Key
 │   └── services/
-│       └── sicar_service_minimal.py  # Serviço de download
+│       └── sicar_service.py    # Serviço de download
 ├── SICAR_package/              # Package SICAR (OCR + HTTP)
 ├── docker-compose.yml          # Docker Compose (apenas API)
 ├── Dockerfile                  # Dockerfile
 ├── requirements.txt            # Dependências Python
-├── .env.example               # Exemplo de configuração
-└── README.md                  # Esta documentação
+├── .env.example                # Exemplo de configuração
+└── README.md                   # Esta documentação
 ```
 
 ## 🔒 Segurança
@@ -171,6 +171,33 @@ sicarAPI/
 - **Rate Limiting**: 10 requisições por minuto por IP
 - **IP Whitelist**: Opcional via `ALLOWED_IPS`
 - **CORS**: Configurável via `CORS_ORIGINS`
+
+## 🌐 Deploy em Produção
+
+O workflow GitHub Actions está configurado para deploy automático ao fazer push nesta branch.
+
+### Variáveis de Ambiente (.env)
+
+```bash
+# Obrigatórias
+API_KEY=sua-api-key-segura    # Gerar: python -c "import secrets; print(secrets.token_urlsafe(32))"
+
+# Opcionais
+API_PORT=8000
+API_ROOT_PATH=/api            # Se usar proxy reverso com prefixo
+LOG_LEVEL=INFO
+CORS_ORIGINS=*
+RATE_LIMIT_ENABLED=True
+RATE_LIMIT_PER_MINUTE_DOWNLOADS=10
+```
+
+### Secrets do GitHub (para CI/CD)
+
+| Secret | Descrição |
+|--------|-----------|
+| `VPS_HOST` | IP ou hostname do servidor |
+| `VPS_USER` | Usuário SSH (ex: root) |
+| `VPS_SSH_KEY` | Chave privada SSH completa |
 
 ## 📝 Licença
 
