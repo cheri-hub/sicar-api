@@ -1,7 +1,7 @@
 # ===================================================================
-# Deploy to Production
+# Deploy to Production - Branch Minimal
 # ===================================================================
-# Deploy automático para VPS quando houver push na main
+# Deploy automático para VPS quando houver push na branch
 # 
 # Secrets necessários:
 #   VPS_HOST     - IP ou hostname do servidor
@@ -14,7 +14,7 @@ name: Deploy to VPS
 on:
   push:
     branches:
-      - main
+      - datageoplan-python-api-min
   workflow_dispatch:
 
 jobs:
@@ -45,12 +45,12 @@ jobs:
               echo "⚠️ Diretório não é um repositório git. Inicializando..."
               git init
               git remote add origin https://github.com/cheri-hub/sicar-api.git
-              git fetch origin main
-              git checkout -f main
+              git fetch origin datageoplan-python-api-min
+              git checkout -f datageoplan-python-api-min
             else
               echo "📥 Pulling latest changes..."
-              git fetch origin main
-              git reset --hard origin/main
+              git fetch origin datageoplan-python-api-min
+              git reset --hard origin/datageoplan-python-api-min
             fi
             
             echo "🔄 Rebuilding containers..."

@@ -1,51 +1,18 @@
 version: '3.8'
 
 services:
-  # Banco de Dados PostgreSQL
-  db:
-    image: postgres:15-alpine
-    container_name: sicar_postgres
-    env_file:
-      - .env
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
-      POSTGRES_DB: ${POSTGRES_DB:-sicar_db}
-    ports:
-      - "${POSTGRES_PORT:-5432}:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-sicar_db}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    networks:
-      - sicar_network
-
-  # API SICAR
+  # API SICAR Minimal - Apenas Stream Downloads
   api:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: sicar_api
+    container_name: sicar_api_minimal
     ports:
       - "${API_PORT:-8000}:8000"
     env_file:
       - .env
     environment:
-      # Sobrescrever para Docker (conecta no container 'db')
-      POSTGRES_HOST: db
-      SICAR_DOWNLOAD_FOLDER: /app/downloads
-      LOG_FILE: /app/logs/sicar_api.log
-    volumes:
-      # Mapear pasta de downloads para persistência
-      - ./downloads:/app/downloads
-      # Mapear logs
-      - ./logs:/app/logs
-    depends_on:
-      db:
-        condition: service_healthy
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
     restart: unless-stopped
     networks:
       - sicar_network
@@ -56,45 +23,6 @@ services:
       retries: 3
       start_period: 40s
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000
-
-  # PGAdmin (Opcional - Interface para gerenciar PostgreSQL)
-  pgadmin:
-    image: dpage/pgadmin4:latest
-    container_name: sicar_pgadmin
-    env_file:
-      - .env
-    environment:
-      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL:-admin@sicar.com}
-      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD:-admin}
-    ports:
-      - "5050:80"
-    depends_on:
-      - db
-    networks:
-      - sicar_network
-    profiles:
-      - tools  # Só inicia se especificar: docker-compose --profile tools up
-
-  # Frontend React
-  frontend:
-    build:
-      context: ./app/frontend
-      dockerfile: Dockerfile
-    container_name: sicar_frontend
-    ports:
-      - "${FRONTEND_PORT:-3000}:80"
-    environment:
-      # Nginx usa essa variável para autenticar na API
-      API_KEY: ${API_KEY}
-    depends_on:
-      - api
-    restart: unless-stopped
-    networks:
-      - sicar_network
-
-volumes:
-  postgres_data:
-    driver: local
 
 networks:
   sicar_network:

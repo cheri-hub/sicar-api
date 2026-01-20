@@ -4,36 +4,15 @@ uvicorn[standard]==0.32.0
 pydantic==2.9.0
 pydantic-settings==2.5.2
 
-# Banco de Dados
-sqlalchemy==2.0.35
-psycopg[binary]==3.2.3
-alembic==1.13.3
-
-# Agendador
-apscheduler==3.10.4
-
 # Rate Limiting
 slowapi==0.1.9
 
-# SICAR (package local)
-git+https://github.com/urbanogilson/SICAR.git
-
-# HTTP Client (já incluído no SICAR, mas explícito)
+# HTTP Client (usado pelo SICAR)
 httpx==0.28.1
 
-# Processamento de Dados (opcional para parsing de shapefiles)
-geopandas==1.0.1
-shapely==2.0.6
-
-# Logging e Monitoramento
+# Logging
 python-dotenv==1.0.1
-structlog==24.4.0
 
-# Testes
+# Testes (opcional)
 pytest==8.3.4
 pytest-asyncio==0.24.0
-pytest-cov==6.0.0
-httpx==0.28.1  # Já incluído acima, usado também pelo TestClient
-
-# Utilitários
-python-multipart==0.0.12
